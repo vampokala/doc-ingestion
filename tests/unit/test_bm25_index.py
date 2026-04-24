@@ -3,7 +3,6 @@ import os
 import tempfile
 
 import pytest
-
 from src.core.bm25_index import BM25Index
 
 

@@ -10,11 +10,9 @@ from typing import List
 from unittest.mock import patch
 
 import pytest
-
 from src.core.bm25_index import BM25Index
 from src.core.document_processor import DocumentProcessor
 from src.utils.database import VectorDatabase
-
 
 # ---------------------------------------------------------------------------
 # Helpers
