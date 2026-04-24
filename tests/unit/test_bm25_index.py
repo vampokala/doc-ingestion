@@ -64,6 +64,18 @@ class TestScore:
         assert results[0]["id"] == "doc3"
 
 
+class TestComposeIndexText:
+    def test_title_terms_match_when_absent_from_chunk(self):
+        chunk = "obscure xyzzy content here"
+        meta = {"title": "specialtitle token", "file_type": ".md"}
+        composed = BM25Index.compose_index_text(chunk, meta, title_weight=2)
+        idx = BM25Index()
+        idx.add_document("d1", chunk, meta, index_text=composed)
+        hits = idx.score("specialtitle", top_k=1)
+        assert hits and hits[0]["id"] == "d1"
+        assert hits[0]["text"] == chunk
+
+
 class TestTokenize:
     def test_lowercases(self):
         tokens = BM25Index._tokenize("Hello World")

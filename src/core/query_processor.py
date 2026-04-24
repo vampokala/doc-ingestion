@@ -44,6 +44,9 @@ _SYNONYMS: dict[str, List[str]] = {
     "search": ["find", "retrieve", "query", "lookup"],
     "large": ["big", "huge", "extensive"],
     "small": ["tiny", "minimal", "compact"],
+    "data": ["information", "records"],
+    "model": ["system", "approach"],
+    "index": ["catalog", "registry"],
 }
 
 
@@ -63,6 +66,23 @@ class QueryProcessor:
             intent=intent,
             is_complex=is_complex,
         )
+
+    def process_query(self, query: str) -> ProcessedQuery:
+        """Alias for :meth:`process` (Phase 2 spec naming)."""
+        return self.process(query)
+
+    def normalize_text(self, text: str) -> str:
+        """Alias for :meth:`normalize` (Phase 2 spec naming)."""
+        return self.normalize(text)
+
+    def expand_query(self, query: str) -> List[str]:
+        """Return synonym expansions for tokenized query (excludes original tokens)."""
+        normalized = self.normalize(query)
+        tokens = self._tokenize(normalized)
+        return self._expand(tokens)
+
+    def detect_intent(self, query: str) -> QueryIntent:
+        return self._detect_intent(query)
 
     def normalize(self, text: str) -> str:
         text = text.lower().strip()
