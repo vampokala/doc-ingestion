@@ -36,7 +36,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements/requirements.txt mypy types-PyYAML types-beautifulsoup4
+        run: pip install -r requirements/base.txt mypy types-PyYAML types-beautifulsoup4
 
       - name: Run mypy
         run: mypy src/ --ignore-missing-imports
@@ -53,7 +53,24 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements/requirements.txt pytest pytest-cov
+        run: pip install -r requirements/base.txt pytest pytest-cov
 
       - name: Run tests
         run: pytest tests/unit/ -v --cov=src --cov-report=term-missing
+
+  integration:
+    name: Integration tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements/base.txt pytest
+
+      - name: Run integration tests
+        run: pytest tests/integration/ -v

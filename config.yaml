@@ -1,0 +1,10 @@
+# Document processing
+chunk_size: 1000
+overlap: 200
+
+# File paths
+data_dir: data/documents
+output_dir: data/embeddings
+
+# Logging
+log_level: INFO

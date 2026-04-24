@@ -93,7 +93,7 @@ class VectorDatabase:
                     ids=[str(doc["id"]) for doc in batch],
                     documents=texts,
                     embeddings=embeddings,
-                    metadatas=[{k: v for k, v in doc.items() if k not in ("id", "text")} for doc in batch],
+                    metadatas=[({k: v for k, v in doc.items() if k not in ("id", "text")} or None) for doc in batch],
                 )
             else:
                 points = [
