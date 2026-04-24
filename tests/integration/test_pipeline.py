@@ -13,6 +13,8 @@ import pytest
 
 from src.core.bm25_index import BM25Index
 from src.core.document_processor import DocumentProcessor
+from src.core.query_processor import QueryProcessor
+from src import query as query_mod
 from src.utils.database import VectorDatabase
 
 
@@ -228,3 +230,38 @@ class TestFullPipeline:
         finally:
             for p in paths:
                 os.unlink(p)
+
+
+class TestHybridRetrievePipeline:
+    def test_query_retrieve_returns_rrf_shaped_dicts(self, vector_db, mock_embedding):
+        """End-to-end retrieve() uses HybridRetriever + legacy dict shape."""
+        index = BM25Index()
+        meta = {"title": "doc.txt", "file_type": ".txt"}
+        index.add_document(
+            "chunk0",
+            "python asyncio concurrency patterns",
+            meta,
+            index_text=BM25Index.compose_index_text("python asyncio concurrency patterns", meta),
+        )
+        index.add_document(
+            "chunk1",
+            "unrelated content about gardening soil ph",
+            meta,
+            index_text=BM25Index.compose_index_text("unrelated content about gardening soil ph", meta),
+        )
+
+        vector_db.create_collection(query_mod.COLLECTION_NAME)
+        vector_db.add_documents(
+            query_mod.COLLECTION_NAME,
+            [
+                {"id": "chunk0", "text": "python asyncio concurrency patterns", **meta},
+                {"id": "chunk1", "text": "unrelated content about gardening soil ph", **meta},
+            ],
+        )
+
+        qp = QueryProcessor()
+        rows = query_mod.retrieve("asyncio python", index, vector_db, qp, top_k=2)
+        assert len(rows) == 2
+        assert all("score" in r for r in rows)
+        assert rows[0]["id"] == "chunk0"
+        assert "sources" in rows[0]

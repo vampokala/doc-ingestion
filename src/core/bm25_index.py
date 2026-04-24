@@ -24,6 +24,30 @@ class BM25Index:
     # --- preprocessing ---
 
     @staticmethod
+    def compose_index_text(
+        chunk_text: str,
+        metadata: Optional[Dict] = None,
+        title_weight: int = 3,
+    ) -> str:
+        """Repeat title (and light metadata) so BM25 can field-bias without a multi-field engine."""
+        metadata = metadata or {}
+        parts: List[str] = []
+        title = str(metadata.get("title") or "").strip()
+        if title:
+            parts.extend([title] * max(1, title_weight))
+        parts.append(chunk_text)
+        extras: List[str] = []
+        ft = metadata.get("file_type")
+        if ft:
+            extras.append(str(ft))
+        auth = metadata.get("author")
+        if auth and str(auth).strip().lower() not in ("unknown", ""):
+            extras.append(str(auth))
+        if extras:
+            parts.append(" ".join(extras))
+        return "\n".join(parts)
+
+    @staticmethod
     def _tokenize(text: str) -> List[str]:
         text = text.lower()
         text = re.sub(r'[^a-z0-9\s]', ' ', text)
@@ -31,8 +55,16 @@ class BM25Index:
 
     # --- indexing ---
 
-    def add_document(self, doc_id: str, text: str, metadata: Dict) -> None:
-        tokens = self._tokenize(text)
+    def add_document(
+        self,
+        doc_id: str,
+        text: str,
+        metadata: Dict,
+        index_text: Optional[str] = None,
+    ) -> None:
+        """Index BM25 over ``index_text`` when provided; ``text`` is the stored chunk for retrieval."""
+        body_for_index = index_text if index_text is not None else text
+        tokens = self._tokenize(body_for_index)
         doc_length = len(tokens)
 
         self.documents.append({'id': doc_id, 'text': text, 'metadata': metadata})
