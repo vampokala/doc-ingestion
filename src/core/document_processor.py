@@ -137,12 +137,3 @@ class DocumentProcessor:
         except Exception:
             pass
         return result
-
-    def embed_chunks(self, chunks: List[DocumentChunk]) -> List[DocumentChunk]:
-        # Generate embeddings for each chunk
-        embedded_chunks = []
-        for chunk in chunks:
-            embedding = generate_embedding(chunk.text)
-            chunk.metadata["embedding"] = embedding
-            embedded_chunks.append(chunk)
-        return embedded_chunks
