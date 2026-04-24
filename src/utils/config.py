@@ -5,6 +5,7 @@ Validation with Pydantic
 Support for dev/staging/prod environments
 '''
 import os
+
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 

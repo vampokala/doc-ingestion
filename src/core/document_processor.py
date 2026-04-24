@@ -5,15 +5,15 @@ Multi-format support (PDF, DOCX, TXT, MD, HTML)
 - Text cleaning and normalization
 - Duplicate detection
 '''
+import hashlib
 import os
 import re
-import hashlib
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 import PyPDF2
-from docx import Document
 from bs4 import BeautifulSoup
+from docx import Document
 
 
 class DocumentProcessor:

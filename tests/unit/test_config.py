@@ -3,7 +3,6 @@ import tempfile
 
 import pytest
 import yaml
-
 from src.utils.config import Config, load_config
 
 
