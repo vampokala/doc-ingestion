@@ -39,7 +39,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements/base.txt mypy types-PyYAML types-beautifulsoup4
+        run: pip install -r requirements/base.txt mypy types-PyYAML types-beautifulsoup4 types-requests
 
       - name: Run mypy
         run: mypy src/ --ignore-missing-imports

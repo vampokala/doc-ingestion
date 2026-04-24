@@ -38,7 +38,8 @@ def load_config(config_path: str = "config.yaml", env: str | None = None) -> Con
         env_value = os.getenv(field_name.upper())
         if env_value is not None:
             annotation = field_info.annotation
-            config_data[field_name] = annotation(env_value)
+            if annotation is not None:
+                config_data[field_name] = annotation(env_value)
 
     try:
         return Config(**config_data)

@@ -113,7 +113,7 @@ class DocumentProcessor:
         result = {}
         try:
             with open(file_path, 'rb') as f:
-                info = PyPDF2.PdfReader(f).metadata or {}
+                info: Dict = dict(PyPDF2.PdfReader(f).metadata or {})
             if info.get('/Title'):
                 result['title'] = info['/Title']
             if info.get('/Author'):

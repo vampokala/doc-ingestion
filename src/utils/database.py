@@ -6,7 +6,7 @@
 - Metadata filtering capabilities
 '''
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import chromadb
 import ollama
@@ -56,7 +56,7 @@ class VectorDatabase:
 
     def generate_embedding(self, text: str) -> List[float]:
         response = ollama.embeddings(model=OLLAMA_MODEL, prompt=text)
-        return response["embedding"]
+        return response["embedding"]  # type: ignore[return-value]
 
     def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         return [self.generate_embedding(t) for t in texts]
@@ -89,11 +89,15 @@ class VectorDatabase:
 
             if self.mode == "dev":
                 collection = self.chroma_client.get_or_create_collection(name=collection_name)
-                collection.upsert(
+                metadatas = [
+                    ({k: v for k, v in doc.items() if k not in ("id", "text")} or None)
+                    for doc in batch
+                ]
+                collection.upsert(  # type: ignore[arg-type]
                     ids=[str(doc["id"]) for doc in batch],
                     documents=texts,
-                    embeddings=embeddings,
-                    metadatas=[({k: v for k, v in doc.items() if k not in ("id", "text")} or None) for doc in batch],
+                    embeddings=embeddings,  # type: ignore[arg-type]
+                    metadatas=metadatas,  # type: ignore[arg-type]
                 )
             else:
                 points = [
@@ -124,35 +128,34 @@ class VectorDatabase:
             collection = self.chroma_client.get_or_create_collection(name=collection_name)
             where = ({k: v for k, v in filters.items()} if filters else None)
             results = collection.query(
-                query_embeddings=[query_embedding],
+                query_embeddings=[query_embedding],  # type: ignore[arg-type]
                 n_results=top_k,
                 where=where,
             )
+            ids: List[str] = (results["ids"] or [[]])[0]
+            docs: List[str] = (results["documents"] or [[]])[0]
+            metas: List[Dict] = (results["metadatas"] or [[]])[0]  # type: ignore[assignment]
+            dists: List[float] = (results["distances"] or [[]])[0]
             return [
                 {"id": id_, "text": doc, "metadata": meta, "distance": dist}
-                for id_, doc, meta, dist in zip(
-                    results["ids"][0],
-                    results["documents"][0],
-                    results["metadatas"][0],
-                    results["distances"][0],
-                )
+                for id_, doc, meta, dist in zip(ids, docs, metas, dists)
             ]
         else:
-            search_filter = None
+            search_filter: Optional[Filter] = None
             if filters:
-                conditions = [
+                conditions: Sequence[FieldCondition] = [
                     FieldCondition(key=k, match=MatchValue(value=v))
                     for k, v in filters.items()
                 ]
-                search_filter = Filter(must=conditions)
+                search_filter = Filter(must=list(conditions))
 
-            hits = self.qdrant_client.search(
+            response = self.qdrant_client.query_points(
                 collection_name=collection_name,
-                query_vector=query_embedding,
+                query=query_embedding,
                 limit=top_k,
                 query_filter=search_filter,
             )
             return [
                 {"id": hit.id, "metadata": hit.payload, "score": hit.score}
-                for hit in hits
+                for hit in response.points
             ]
