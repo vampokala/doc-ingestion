@@ -9,12 +9,33 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 
+class RerankerSettings(BaseModel):
+    model: str = Field("cross-encoder/ms-marco-MiniLM-L-6-v2", description="Cross-encoder HF id")
+    batch_size: int = Field(32, ge=1)
+    score_threshold: float = Field(0.1, description="Minimum CE score to keep a candidate")
+    top_k: int = Field(5, ge=1, description="Chunks to return after reranking")
+
+
+class ContextSettings(BaseModel):
+    max_tokens: int = Field(4000, ge=256, description="Max context tokens for the LLM prompt body")
+    tokenizer: str = Field("gpt2", description="HF tokenizer id used only for counting")
+
+
+class GenerationSettings(BaseModel):
+    model: str = Field("qwen2.5-coder:14b", description="Default Ollama chat model")
+    stream: bool = Field(False, description="Default streaming for CLI")
+    cache_ttl: int = Field(300, ge=0, description="Response cache TTL seconds (0 disables)")
+
+
 class Config(BaseModel):
     chunk_size: int = Field(1000, description="Size of text chunks")
     overlap: int = Field(200, description="Overlap between chunks")
     data_dir: str = Field("data", description="Directory for input files")
     output_dir: str = Field("output", description="Directory for processed output")
     log_level: str = Field("INFO", description="Logging level")
+    reranker: RerankerSettings = Field(default_factory=RerankerSettings)
+    context: ContextSettings = Field(default_factory=ContextSettings)
+    generation: GenerationSettings = Field(default_factory=GenerationSettings)
 
 
 def load_config(config_path: str = "config.yaml", env: str | None = None) -> Config:

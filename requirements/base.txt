@@ -13,3 +13,12 @@ markdown>=3.4.0
 beautifulsoup4>=4.12.0
 ollama>=0.1.0
 qdrant-client>=1.7.0
+
+# Phase 3: reranking & generation
+transformers>=4.30.0
+torch>=2.0.0
+accelerate>=0.20.0
+tokenizers>=0.13.0
+rouge-score>=0.1.2
+bert-score>=0.3.13
+sacrebleu>=2.3.0

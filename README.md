@@ -4,8 +4,54 @@ Local-first **document ingestion**, **hybrid retrieval** (sparse + dense), and *
 
 ---
 
+## Quick overview
+
+Doc-Ingestion is a practical Retrieval-Augmented Generation (RAG) project that turns raw documents into a searchable and explainable Q&A assistant. It combines:
+- ingestion + chunking for messy real-world docs,
+- hybrid retrieval (BM25 + embeddings),
+- reranking and context optimization,
+- local-first generation through Ollama.
+
+```mermaid
+flowchart LR
+  userQuery[UserQuestion] --> retrieve[HybridRetrieve]
+  retrieve --> rerank[CrossEncoderRerank]
+  rerank --> optimize[ContextOptimize]
+  optimize --> generate[RAGGenerate]
+  generate --> citedAnswer[CitedAnswer]
+```
+
+## For visitors
+
+If you are skimming this repo in under 2 minutes:
+- **What it solves:** lets users ask grounded questions over private documents instead of guessing with generic chat answers.
+- **What was built:** full ingestion pipeline, sparse+dense hybrid retrieval, RRF fusion, reranking/generation path, and evaluation scaffolding.
+- **Why it matters:** demonstrates end-to-end AI engineering across data processing, retrieval quality, model orchestration, and developer tooling.
+- **How to navigate:** start with this README, then jump to [`Docs/README.md`](Docs/README.md) for audience-based deep dives.
+
+## Project highlights
+
+- End-to-end local-first RAG pipeline with clear module boundaries.
+- Hybrid retrieval with reciprocal rank fusion for better recall.
+- Query-aware processing and reranking for relevance improvements.
+- Streaming generation support and response post-processing.
+- Evaluation modules for both retrieval and generation quality.
+
+## Where to read next
+
+- **Documentation hub:** [`Docs/README.md`](Docs/README.md)
+- **System narrative:** [`Docs/PROJECT_OVERVIEW.md`](Docs/PROJECT_OVERVIEW.md)
+- **Public roadmap:** [`Docs/ROADMAP.md`](Docs/ROADMAP.md)
+- **Phase docs:** [`Docs/phase1_core_infrastructure.md`](Docs/phase1_core_infrastructure.md), [`Docs/phase2_hybrid_retrieval.md`](Docs/phase2_hybrid_retrieval.md), [`Docs/phase3_reranking_generation.md`](Docs/phase3_reranking_generation.md), [`Docs/phase4_citation_api.md`](Docs/phase4_citation_api.md)
+
+---
+
 ## Table of contents
 
+- [Quick overview](#quick-overview)
+- [For visitors](#for-visitors)
+- [Project highlights](#project-highlights)
+- [Where to read next](#where-to-read-next)
 - [Features](#features)
 - [Tech stack](#tech-stack)
 - [Architecture](#architecture)
@@ -153,29 +199,32 @@ flowchart TD
 
 ### Query pipeline
 
-End-to-end path for `python -m src.query` (retrieval runs inside `HybridRetriever.retrieve`; the LLM step is in `query.py` after fusion).
+End-to-end path for `python -m src.query` (retrieval in `HybridRetriever.retrieve`, optional cross-encoder rerank, context packing + `PromptManager`, then `RAGGenerator` / Ollama).
 
 ```mermaid
 flowchart TD
   QIN([User query])
+  CACHEQ[(ResponseCache optional)]
   LOAD[Load BM25 JSON and Chroma]
   QP[QueryProcessor.process_query]
   HR[HybridRetriever.retrieve]
   PAR[BM25 and vector searches thread pool or sequential]
   FUSE[RRF over two ranked id lists]
   TOP[Top k RetrievalResult rows]
-  CACHE[(LRU cache optional)]
+  RER["CrossEncoder rerank optional"]
   LLM{LLM flag}
-  ANS[generate_answer Ollama chat]
+  ANS[RAGGenerator Ollama chat or stream]
   OUT([Stdout chunks and answer])
-  QIN --> LOAD
+  QIN --> CACHEQ
+  CACHEQ -->|miss| LOAD
+  CACHEQ -->|hit| OUT
   LOAD --> QP
   QP --> HR
   HR --> PAR
   PAR --> FUSE
   FUSE --> TOP
-  TOP --> CACHE
-  CACHE --> LLM
+  TOP --> RER
+  RER --> LLM
   LLM -->|with LLM| ANS
   LLM -->|retrieval only| OUT
   ANS --> OUT
