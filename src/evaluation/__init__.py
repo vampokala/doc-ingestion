@@ -1,1 +1,1 @@
-"""Retrieval evaluation metrics and harnesses."""
+"""Retrieval and generation evaluation metrics."""

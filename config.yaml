@@ -8,3 +8,21 @@ output_dir: data/embeddings
 
 # Logging
 log_level: INFO
+
+# Phase 3: cross-encoder reranking
+reranker:
+  model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  batch_size: 32
+  score_threshold: 0.1
+  top_k: 5
+
+# Phase 3: context window (token counting for LLM prompt)
+context:
+  max_tokens: 4000
+  tokenizer: gpt2
+
+# Phase 3: RAG generation (Ollama)
+generation:
+  model: qwen2.5-coder:14b
+  stream: false
+  cache_ttl: 300

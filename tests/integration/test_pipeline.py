@@ -232,7 +232,7 @@ class TestFullPipeline:
 
 class TestHybridRetrievePipeline:
     def test_query_retrieve_returns_rrf_shaped_dicts(self, vector_db, mock_embedding):
-        """End-to-end retrieve() uses HybridRetriever + legacy dict shape."""
+        """End-to-end retrieve() uses HybridRetriever; results expose to_legacy_dict()."""
         index = BM25Index()
         meta = {"title": "doc.txt", "file_type": ".txt"}
         index.add_document(
@@ -259,7 +259,8 @@ class TestHybridRetrievePipeline:
 
         qp = QueryProcessor()
         rows = query_mod.retrieve("asyncio python", index, vector_db, qp, top_k=2)
-        assert len(rows) == 2
-        assert all("score" in r for r in rows)
-        assert rows[0]["id"] == "chunk0"
-        assert "sources" in rows[0]
+        legacy = [r.to_legacy_dict() for r in rows]
+        assert len(legacy) == 2
+        assert all("score" in r for r in legacy)
+        assert legacy[0]["id"] == "chunk0"
+        assert "sources" in legacy[0]
