@@ -2,7 +2,6 @@
 YAML-based configuration with environment variable overrides.
 """
 import os
-from typing import Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError

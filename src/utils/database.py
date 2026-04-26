@@ -30,7 +30,13 @@ BATCH_SIZE = 100
 
 
 class VectorDatabase:
-    def __init__(self, mode: str = "dev", qdrant_host: str = "localhost", qdrant_port: int = 6333, chroma_path: str = "./chroma_db"):
+    def __init__(
+        self,
+        mode: str = "dev",
+        qdrant_host: str = "localhost",
+        qdrant_port: int = 6333,
+        chroma_path: str = "./chroma_db",
+    ):
         self.mode = mode
         self._chroma_path = chroma_path
         self._qdrant_host = qdrant_host

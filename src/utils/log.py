@@ -71,7 +71,12 @@ def track_duration(operation: str, logger: Optional[logging.Logger] = None) -> I
         elapsed = time.perf_counter() - start
         metrics.record(operation, elapsed)
         if logger:
-            _log_extra(logger, logging.DEBUG, f"{operation} completed", {"duration_seconds": round(elapsed, 4), "operation": operation})
+            _log_extra(
+                logger,
+                logging.DEBUG,
+                f"{operation} completed",
+                {"duration_seconds": round(elapsed, 4), "operation": operation},
+            )
 
 
 def log_request(logger: logging.Logger, method: str, path: str, extra: Optional[Dict] = None) -> None:
@@ -81,15 +86,33 @@ def log_request(logger: logging.Logger, method: str, path: str, extra: Optional[
     _log_extra(logger, logging.INFO, f"{method} {path}", payload)
 
 
-def log_response(logger: logging.Logger, method: str, path: str, status_code: int, duration_seconds: float, extra: Optional[Dict] = None) -> None:
-    payload = {"event": "response", "method": method, "path": path, "status_code": status_code, "duration_seconds": round(duration_seconds, 4)}
+def log_response(
+    logger: logging.Logger,
+    method: str,
+    path: str,
+    status_code: int,
+    duration_seconds: float,
+    extra: Optional[Dict] = None,
+) -> None:
+    payload = {
+        "event": "response",
+        "method": method,
+        "path": path,
+        "status_code": status_code,
+        "duration_seconds": round(duration_seconds, 4),
+    }
     if extra:
         payload.update(extra)
     level = logging.WARNING if status_code >= 400 else logging.INFO
     _log_extra(logger, level, f"{method} {path} -> {status_code}", payload)
 
 
-def log_error(logger: logging.Logger, message: str, exc: Optional[BaseException] = None, extra: Optional[Dict] = None) -> None:
+def log_error(
+    logger: logging.Logger,
+    message: str,
+    exc: Optional[BaseException] = None,
+    extra: Optional[Dict] = None,
+) -> None:
     payload: Dict[str, Any] = {"event": "error"}
     if extra:
         payload.update(extra)

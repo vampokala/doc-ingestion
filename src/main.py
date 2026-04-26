@@ -1,5 +1,6 @@
 import requests
 
+
 def fetch_models():
     try:
         response = requests.get("http://localhost:11434/api/tags")
