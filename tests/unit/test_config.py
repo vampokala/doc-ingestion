@@ -25,6 +25,11 @@ class TestConfigDefaults:
         assert cfg.chunk_size == 500
         assert cfg.overlap == 50
 
+    def test_llm_defaults_present(self):
+        cfg = Config()
+        assert cfg.llm.default_provider == "ollama"
+        assert "ollama" in cfg.llm.allowed_models_by_provider
+
 
 class TestLoadConfig:
     def test_loads_yaml_values(self):
@@ -88,3 +93,10 @@ class TestLoadConfig:
             os.unlink(base_path)
             if os.path.exists(env_path):
                 os.unlink(env_path)
+
+
+def test_provider_api_key_env():
+    assert provider_api_key_env("openai") == "OPENAI_API_KEY"
+    assert provider_api_key_env("anthropic") == "ANTHROPIC_API_KEY"
+    assert provider_api_key_env("gemini") == "GEMINI_API_KEY"
+    assert provider_api_key_env("ollama") is None

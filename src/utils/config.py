@@ -1,13 +1,23 @@
-'''
-YAML-based configuration
-Environment variable overrides
-Validation with Pydantic
-Support for dev/staging/prod environments
-'''
+"""
+YAML-based configuration with environment variable overrides.
+"""
 import os
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
+
+
+def _env_or(env_name: str, default: str) -> str:
+    value = os.getenv(env_name)
+    if value is None:
+        return default
+    trimmed = value.strip()
+    return trimmed or default
+
+
+def _default_ollama_base_url() -> str:
+    # OLLAMA_HOST is used by some Ollama setups; keep it as a fallback.
+    return _env_or("OLLAMA_BASE_URL", _env_or("OLLAMA_HOST", "http://localhost:11434"))
 
 
 class RerankerSettings(BaseModel):
@@ -28,6 +38,75 @@ class GenerationSettings(BaseModel):
     cache_ttl: int = Field(300, ge=0, description="Response cache TTL seconds (0 disables)")
 
 
+class LLMSettings(BaseModel):
+    default_provider: str = Field("ollama", description="Default provider: ollama/openai/anthropic/gemini")
+    default_model_by_provider: Dict[str, str] = Field(
+        default_factory=lambda: {
+            "ollama": "qwen2.5:7b",
+            "openai": "gpt-4o-mini",
+            "anthropic": "claude-sonnet-4-6",
+            "gemini": "gemini-2.5-flash",
+        }
+    )
+    allowed_models_by_provider: Dict[str, List[str]] = Field(
+        default_factory=lambda: {
+            "ollama": ["qwen2.5:7b", "deepseek-r1:8b"],
+            "openai": ["gpt-4o-mini"],
+            "anthropic": ["claude-sonnet-4-6", "claude-haiku-4-5"],
+            "gemini": ["gemini-2.5-flash", "gemini-2.5-pro"],
+        }
+    )
+    request_timeout_seconds: int = Field(60, ge=5, le=600)
+    openai_base_url: str = Field(
+        default_factory=lambda: _env_or("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        description="OpenAI-compatible API base URL",
+    )
+    anthropic_base_url: str = Field(
+        default_factory=lambda: _env_or("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"),
+        description="Anthropic API base URL",
+    )
+    gemini_base_url: str = Field(
+        default_factory=lambda: _env_or("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
+        description="Gemini API base URL",
+    )
+    ollama_base_url: str = Field(
+        default_factory=_default_ollama_base_url,
+        description="Ollama API base URL",
+    )
+
+    def normalize_provider(self, provider: Optional[str]) -> str:
+        p = (provider or self.default_provider).strip().lower()
+        aliases = {"claude": "anthropic"}
+        return aliases.get(p, p)
+
+    def provider_has_key(self, provider: str) -> bool:
+        env_name = provider_api_key_env(provider)
+        if env_name is None:
+            return True
+        return bool(os.getenv(env_name))
+
+    def is_provider_enabled(self, provider: str) -> bool:
+        p = self.normalize_provider(provider)
+        allow = self.allowed_models_by_provider.get(p) or []
+        if not allow:
+            return False
+        return self.provider_has_key(p)
+
+    def resolve_model(self, provider: str, requested_model: Optional[str]) -> str:
+        p = self.normalize_provider(provider)
+        allowed = self.allowed_models_by_provider.get(p) or []
+        if not allowed:
+            raise ValueError(f"Provider {p!r} is disabled (no allowed models configured)")
+        if requested_model:
+            if requested_model not in allowed:
+                raise ValueError(f"Model {requested_model!r} is not allowed for provider {p!r}")
+            return requested_model
+        default_model = self.default_model_by_provider.get(p)
+        if default_model and default_model in allowed:
+            return default_model
+        return allowed[0]
+
+
 class Config(BaseModel):
     chunk_size: int = Field(1000, description="Size of text chunks")
     overlap: int = Field(200, description="Overlap between chunks")
@@ -37,6 +116,35 @@ class Config(BaseModel):
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     generation: GenerationSettings = Field(default_factory=GenerationSettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
+    api: "APISettings" = Field(default_factory=lambda: APISettings())
+
+
+class APISettings(BaseModel):
+    auth_enabled: bool = Field(True, description="Require API key for protected routes")
+    api_keys: List[str] = Field(default_factory=list, description="Static API keys (optional)")
+    rate_limit_per_minute: int = Field(60, ge=1, le=2000)
+    redis_rate_limit_enabled: bool = Field(True, description="Use Redis-backed distributed rate limiting")
+    redis_url: str = Field("redis://localhost:6379/0", description="Redis URL for distributed rate limiting")
+
+    def resolved_api_keys(self) -> List[str]:
+        if self.api_keys:
+            return [k for k in self.api_keys if k]
+        from_env = os.getenv("DOC_API_KEYS", "")
+        if not from_env.strip():
+            return []
+        return [x.strip() for x in from_env.split(",") if x.strip()]
+
+
+def provider_api_key_env(provider: str) -> str | None:
+    p = provider.strip().lower()
+    if p == "openai":
+        return "OPENAI_API_KEY"
+    if p == "anthropic":
+        return "ANTHROPIC_API_KEY"
+    if p == "gemini":
+        return "GEMINI_API_KEY"
+    return None
 
 
 def load_config(config_path: str = "config.yaml", env: str | None = None) -> Config:

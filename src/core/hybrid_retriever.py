@@ -48,15 +48,19 @@ class _LRUCache:
 def reciprocal_rank_fusion(
     ranked_lists: List[List[str]],
     k_rrf: int = 60,
+    weights: Optional[List[float]] = None,
 ) -> List[Tuple[str, float]]:
     """
     Standard RRF: score(d) = sum_i 1 / (k_rrf + rank_i(d)).
     Missing from a list means that list does not contribute for that document.
     """
     scores: Dict[str, float] = {}
-    for ids in ranked_lists:
+    for idx, ids in enumerate(ranked_lists):
+        weight = 1.0
+        if weights and idx < len(weights):
+            weight = weights[idx]
         for rank, doc_id in enumerate(ids, start=1):
-            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k_rrf + rank)
+            scores[doc_id] = scores.get(doc_id, 0.0) + weight * (1.0 / (k_rrf + rank))
     return sorted(scores.items(), key=lambda x: (-x[1], x[0]))
 
 
@@ -84,7 +88,8 @@ class HybridRetriever:
         k_rrf: Optional[int] = None,
     ) -> List[Tuple[str, float]]:
         k = k_rrf if k_rrf is not None else self.config.k_rrf
-        return reciprocal_rank_fusion(ranked_lists, k_rrf=k)
+        weights = [self.fusion_weights.get("bm25", 1.0), self.fusion_weights.get("vector", 1.0)]
+        return reciprocal_rank_fusion(ranked_lists, k_rrf=k, weights=weights)
 
     @staticmethod
     def _cache_key_parts(
@@ -141,7 +146,8 @@ class HybridRetriever:
         bm25_ids = [str(h["id"]) for h in bm25_hits]
         vec_ids = [str(h["id"]) for h in vec_hits]
 
-        fused = reciprocal_rank_fusion([bm25_ids, vec_ids], k_rrf=cfg.k_rrf)
+        weights = [self.fusion_weights.get("bm25", 1.0), self.fusion_weights.get("vector", 1.0)]
+        fused = reciprocal_rank_fusion([bm25_ids, vec_ids], k_rrf=cfg.k_rrf, weights=weights)
 
         by_id: Dict[str, Dict[str, Any]] = {}
         for h in bm25_hits:

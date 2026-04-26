@@ -1,5 +1,29 @@
 # Documentation Hub
 
+This folder contains implementation references and phase-level design notes.
+
+## Core docs
+
+- [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md): system architecture and execution surfaces (CLI/API/UI)
+- [`ROADMAP.md`](ROADMAP.md): delivery status by phase
+- [`performance_baseline.md`](performance_baseline.md): API overhead benchmark snapshot
+
+## Phase docs
+
+- [`phase1_core_infrastructure.md`](phase1_core_infrastructure.md): ingestion and indexing foundations
+- [`phase2_hybrid_retrieval.md`](phase2_hybrid_retrieval.md): hybrid retrieval + RRF design
+- [`phase3_reranking_generation.md`](phase3_reranking_generation.md): reranking + generation
+- [`phase4_citation_api.md`](phase4_citation_api.md): citation API/UI goals (now partially implemented)
+
+## Implementation-first entry points
+
+- API: `src/api/main.py`
+- UI: `src/web/streamlit_app.py`
+- Orchestrator: `src/core/rag_orchestrator.py`
+- Query CLI: `src/query.py`
+- Ingest CLI: `src/ingest.py`
+# Documentation Hub
+
 Purpose: help different readers find the right project information quickly.  
 Audience: visitors, engineering reviewers, and contributors.  
 Reading time: 2-3 minutes.
