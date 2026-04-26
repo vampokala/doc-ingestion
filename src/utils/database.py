@@ -6,6 +6,8 @@
 - Metadata filtering capabilities
 '''
 import logging
+import os
+import time
 from typing import Dict, List, Optional, Sequence
 
 import chromadb
@@ -35,6 +37,7 @@ class VectorDatabase:
         self._qdrant_port = qdrant_port
         self._chroma_client: Optional[chromadb.ClientAPI] = None
         self._qdrant_client: Optional[QdrantClient] = None
+        self._ollama_client = ollama.Client(host=self._resolve_ollama_host())
 
     # --- client accessors (lazy init) ---
 
@@ -54,9 +57,29 @@ class VectorDatabase:
 
     # --- embedding ---
 
+    @staticmethod
+    def _resolve_ollama_host() -> str:
+        return (
+            os.getenv("OLLAMA_BASE_URL")
+            or os.getenv("OLLAMA_HOST")
+            or "http://localhost:11434"
+        )
+
     def generate_embedding(self, text: str) -> List[float]:
-        response = ollama.embeddings(model=OLLAMA_MODEL, prompt=text)
-        return response["embedding"]  # type: ignore[return-value]
+        attempts = 3
+        last_error: Exception | None = None
+        for idx in range(attempts):
+            try:
+                response = self._ollama_client.embeddings(model=OLLAMA_MODEL, prompt=text)
+                return response["embedding"]  # type: ignore[return-value]
+            except Exception as exc:
+                last_error = exc
+                if idx == attempts - 1:
+                    raise
+                time.sleep(0.35 * (idx + 1))
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Unexpected Ollama embedding retry state")
 
     def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         return [self.generate_embedding(t) for t in texts]

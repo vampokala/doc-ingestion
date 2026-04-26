@@ -9,8 +9,27 @@ from typing import Optional
 from src.core.generator import GenerationResult
 
 
-def cache_key(query: str, model: str, top_k: int) -> str:
-    raw = f"{query}\n{model}\n{top_k}"
+def cache_key(
+    query: str,
+    model: str,
+    top_k: int,
+    *,
+    provider: str = "ollama",
+    use_rerank: bool = True,
+    reranker_model: str = "",
+    corpus_fingerprint: str = "documents",
+) -> str:
+    raw = "\n".join(
+        [
+            query,
+            provider,
+            model,
+            str(top_k),
+            str(use_rerank),
+            reranker_model,
+            corpus_fingerprint,
+        ]
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 

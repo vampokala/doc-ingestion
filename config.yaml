@@ -26,3 +26,36 @@ generation:
   model: qwen2.5-coder:14b
   stream: false
   cache_ttl: 300
+
+# Phase 4: multi-provider LLM routing
+llm:
+  default_provider: ollama
+  default_model_by_provider:
+    ollama: qwen2.5:7b
+    openai: gpt-4o-mini
+    anthropic: claude-sonnet-4-6
+    gemini: gemini-2.5-flash
+  allowed_models_by_provider:
+    ollama:
+      - qwen2.5:7b
+      - deepseek-r1:8b
+      - qwen2.5-coder:14b
+    openai:
+      - gpt-4o-mini
+      - gpt-4.1-mini
+    anthropic:
+      - claude-sonnet-4-6
+      - claude-haiku-4-5
+    gemini:
+      - gemini-2.5-flash
+      - gemini-2.5-pro
+  request_timeout_seconds: 60
+
+# Phase 4: API production controls
+api:
+  auth_enabled: true
+  api_keys:
+    - dev-key-1
+  rate_limit_per_minute: 120
+  redis_rate_limit_enabled: true
+  redis_url: redis://localhost:6379/0

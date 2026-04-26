@@ -1,5 +1,51 @@
 # Project Overview
 
+Doc-Ingestion is a citation-aware RAG system with three user-facing surfaces:
+
+- CLI (`src/query.py`, `src/ingest.py`)
+- FastAPI (`src/api/main.py`)
+- Streamlit (`src/web/streamlit_app.py`)
+
+## System map
+
+```mermaid
+flowchart LR
+  client[User] --> cli[CLI]
+  client --> api[FastAPI]
+  client --> ui[Streamlit]
+  cli --> orchestrator[RAGOrchestrator]
+  api --> orchestrator
+  ui --> orchestrator
+  orchestrator --> hybrid[HybridRetriever]
+  hybrid --> rerank[CrossEncoderReranker]
+  rerank --> gen[RAGGenerator]
+  gen --> cite[CitationTrackerAndVerifier]
+  gen --> providers[LLMProviderRouter]
+  providers --> ollama[Ollama]
+  providers --> openai[OpenAI]
+  providers --> claude[AnthropicClaude]
+  providers --> gemini[Gemini]
+  orchestrator --> bm25[BM25Index]
+  orchestrator --> vector[VectorStore]
+```
+
+## Retrieval and citation lifecycle
+
+1. Query is normalized and sent to BM25 + vector retrieval.
+2. Ranked IDs are fused with weighted RRF.
+3. Optional cross-encoder reranking narrows final context.
+4. Prompt is generated and sent to selected provider/model.
+5. Citations are extracted, mapped to chunk IDs, and verification-scored.
+6. Structured response is returned to CLI/API/UI.
+
+## Ingestion lifecycle
+
+1. Files are parsed and chunked by `DocumentProcessor`.
+2. Chunks are inserted into BM25 index.
+3. Embeddings are generated and upserted to vector DB.
+4. Streamlit ingest tab can stage uploads and trigger this flow.
+# Project Overview
+
 Purpose: summarize what this project does, why it is useful, and how it is designed.  
 Audience: first-time visitors, interviewers, and engineers doing a quick architecture review.  
 Reading time: 4-6 minutes.
