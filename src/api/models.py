@@ -39,6 +39,13 @@ class RetrievedChunkModel(BaseModel):
     preview: str = ""
 
 
+class TruthfulnessModel(BaseModel):
+    nli_faithfulness: float = 0.0
+    citation_groundedness: float = 0.0
+    uncited_claims: int = 0
+    score: float = 0.0
+
+
 class QueryResponseModel(BaseModel):
     query: str
     provider: str
@@ -49,6 +56,7 @@ class QueryResponseModel(BaseModel):
     validation_issues: List[str] = Field(default_factory=list)
     citations: List[CitationModel] = Field(default_factory=list)
     retrieved: List[RetrievedChunkModel] = Field(default_factory=list)
+    truthfulness: Optional[TruthfulnessModel] = None
 
 
 class HealthModel(BaseModel):

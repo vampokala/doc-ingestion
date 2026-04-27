@@ -22,6 +22,7 @@ from src.core.response_cache import ResponseCache, cache_key
 from src.core.response_processor import ResponseProcessor
 from src.core.retrieval_result import RetrievalResult
 from src.core.vector_search import VectorSearch
+from src.evaluation.truthfulness import TruthfulnessResult, TruthfulnessScorer
 from src.utils.config import Config
 from src.utils.database import VectorDatabase
 
@@ -55,6 +56,7 @@ class QueryResponse:
     processing_time_ms: float = 0.0
     cached: bool = False
     validation_issues: List[str] = field(default_factory=list)
+    truthfulness: Optional[TruthfulnessResult] = None
 
 
 class RAGOrchestrator:
@@ -70,6 +72,14 @@ class RAGOrchestrator:
         self.citation_tracker = CitationTracker()
         self.citation_verifier = CitationVerifier()
         self.cache = ResponseCache(ttl_seconds=int(cfg.generation.cache_ttl))
+        self._truthfulness_scorer: Optional[TruthfulnessScorer] = None
+
+    def _get_truthfulness_scorer(self) -> Optional[TruthfulnessScorer]:
+        if not self.cfg.evaluation.inline_enabled:
+            return None
+        if self._truthfulness_scorer is None:
+            self._truthfulness_scorer = TruthfulnessScorer()
+        return self._truthfulness_scorer
 
     def _load_components(self) -> tuple[BM25Index, VectorDatabase, QueryProcessor]:
         index = BM25Index.load(BM25_INDEX_PATH)
@@ -195,6 +205,21 @@ class RAGOrchestrator:
             gen_result.optimized_context or self.context_optimizer.optimize_context(req.query_text, docs_for_gen),
         )
         self.cache.set(key, gen_result)
+
+        truthfulness: Optional[TruthfulnessResult] = None
+        scorer = self._get_truthfulness_scorer()
+        if scorer is not None and gen_result.response_text.strip():
+            ctx = gen_result.optimized_context or self.context_optimizer.optimize_context(req.query_text, docs_for_gen)
+            source_texts = [str(d.get("text", "")) for d in ctx.documents if d.get("text")]
+            try:
+                truthfulness = scorer.score(
+                    gen_result.response_text,
+                    source_texts,
+                    gen_result.citations,
+                )
+            except Exception:
+                pass  # never let truthfulness scoring break a response
+
         return QueryResponse(
             query=req.query_text,
             provider=selection.provider,
@@ -204,6 +229,7 @@ class RAGOrchestrator:
             retrieved=display_items,
             processing_time_ms=(time.perf_counter() - t0) * 1000.0,
             validation_issues=val.issues,
+            truthfulness=truthfulness,
         )
 
     def stream(self, req: QueryRequest):

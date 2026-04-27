@@ -59,3 +59,10 @@ api:
   rate_limit_per_minute: 120
   redis_rate_limit_enabled: true
   redis_url: redis://localhost:6379/0
+
+# Evaluation settings
+# Inline scoring adds ~200 ms per response (NLI model warm after first call).
+# Set DOC_PROFILE=demo to use a lighter profile without inline NLI scoring.
+evaluation:
+  inline_enabled: true
+  nli_model: cross-encoder/nli-deberta-v3-small

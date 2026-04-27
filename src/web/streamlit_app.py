@@ -15,6 +15,18 @@ UPLOAD_DIR = os.getenv("DOC_UPLOAD_DIR", "data/documents/uploads")
 API_KEY = os.getenv("DOC_API_KEY", "")
 DEFAULT_UI_GATEWAY_KEY = os.getenv("DOC_API_KEY_DEFAULT", "ev-key-1")
 
+# When DOC_PROFILE=demo the UI disables uploads and shows a banner.
+_DEMO_MODE = os.getenv("DOC_PROFILE", "").strip().lower() == "demo"
+
+
+def _truthfulness_badge(score: float) -> str:
+    """Return a coloured emoji label for a truthfulness score in [0, 1]."""
+    if score >= 0.8:
+        return f"🟢 Truthfulness: {score:.2f}"
+    if score >= 0.5:
+        return f"🟡 Truthfulness: {score:.2f}"
+    return f"🔴 Truthfulness: {score:.2f}"
+
 
 def _provider_ready(provider: str, session_provider_key: str = "") -> bool:
     if session_provider_key.strip():
@@ -191,6 +203,16 @@ def _render_query_tab() -> None:
 
         st.markdown("### Answer")
         st.write(data.get("answer", ""))
+
+        truthfulness = data.get("truthfulness")
+        if truthfulness:
+            badge = _truthfulness_badge(float(truthfulness.get("score", 0.0)))
+            st.caption(
+                f"{badge} | NLI faithfulness: {truthfulness.get('nli_faithfulness', 0.0):.2f} | "
+                f"Citation groundedness: {truthfulness.get('citation_groundedness', 0.0):.2f} | "
+                f"Uncited claims: {truthfulness.get('uncited_claims', 0)}"
+            )
+
         st.caption(
             f"Provider: {data.get('provider')} | Model: {data.get('model')} | "
             f"Latency: {data.get('processing_time_ms', 0):.0f} ms"
@@ -219,6 +241,13 @@ def _render_query_tab() -> None:
 
 def _render_ingest_tab() -> None:
     st.subheader("Ingest new documents")
+    if _DEMO_MODE:
+        st.info(
+            "**Hosted demo** — uploads are disabled to prevent abuse. "
+            "Sample documents (RAG, vector databases, BM25) are pre-loaded and ready to query. "
+            "Clone the repo and run locally to ingest your own documents."
+        )
+        return
     st.markdown(
         """
 1. Upload supported files (`.pdf`, `.docx`, `.txt`, `.md`, `.html`).
@@ -246,6 +275,12 @@ def _render_ingest_tab() -> None:
 def main() -> None:
     st.set_page_config(page_title="Doc Ingestion UI", layout="wide")
     st.title("Doc Ingestion Assistant")
+    if _DEMO_MODE:
+        st.info(
+            "**Hosted demo** — querying sample documents (RAG, vector databases, BM25) "
+            "via a cloud LLM. No data is persisted between sessions. "
+            "[Run locally](https://github.com/vampokala/Doc-Ingestion#quickstart) for full functionality."
+        )
     query_tab, ingest_tab = st.tabs(["Query", "Ingest"])
     with query_tab:
         _render_query_tab()

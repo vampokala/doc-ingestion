@@ -77,3 +77,34 @@ jobs:
 
       - name: Run integration tests
         run: pytest tests/integration/ -v
+
+  evals-smoke:
+    name: Eval smoke test (mock pipeline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements/base.txt
+
+      - name: Run smoke evals (mock, no LLM required)
+        run: |
+          PYTHONPATH=. python -m evals.run_evals \
+            --dataset evals/datasets/smoke.jsonl \
+            --mock \
+            --no-nli \
+            --output evals/reports/ \
+            --correctness-threshold 0.0 \
+            --faithfulness-threshold 0.0
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: evals/reports/

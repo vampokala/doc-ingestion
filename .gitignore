@@ -17,3 +17,6 @@ venv/
 
 # Generated indexes (rebuild with ingest)
 data/embeddings/
+
+# Eval reports (generated at runtime)
+evals/reports/

@@ -1,7 +1,10 @@
 """
 YAML-based configuration with environment variable overrides.
 """
+from __future__ import annotations
+
 import os
+from typing import Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
@@ -107,6 +110,14 @@ class LLMSettings(BaseModel):
         return allowed[0]
 
 
+class EvaluationSettings(BaseModel):
+    inline_enabled: bool = Field(True, description="Attach truthfulness score to every query response")
+    nli_model: str = Field(
+        "cross-encoder/nli-deberta-v3-small",
+        description="HuggingFace CrossEncoder model for NLI-based faithfulness scoring",
+    )
+
+
 class Config(BaseModel):
     chunk_size: int = Field(1000, description="Size of text chunks")
     overlap: int = Field(200, description="Overlap between chunks")
@@ -118,6 +129,7 @@ class Config(BaseModel):
     generation: GenerationSettings = Field(default_factory=GenerationSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     api: "APISettings" = Field(default_factory=lambda: APISettings())
+    evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
 
 
 class APISettings(BaseModel):
