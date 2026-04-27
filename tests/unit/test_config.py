@@ -3,7 +3,7 @@ import tempfile
 
 import pytest
 import yaml
-from src.utils.config import Config, load_config
+from src.utils.config import Config, load_config, provider_api_key_env
 
 
 def _write_config(data: dict) -> str:

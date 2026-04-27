@@ -19,6 +19,7 @@ from src.api.models import (
     QueryRequestModel,
     QueryResponseModel,
     RetrievedChunkModel,
+    TruthfulnessModel,
 )
 from src.core.rag_orchestrator import COLLECTION_NAME, QueryRequest, RAGOrchestrator
 from src.utils.config import load_config
@@ -183,6 +184,16 @@ def query(
             )
         )
 
+    truthfulness_model = None
+    if out.truthfulness is not None:
+        t = out.truthfulness
+        truthfulness_model = TruthfulnessModel(
+            nli_faithfulness=t.nli_faithfulness,
+            citation_groundedness=t.citation_groundedness,
+            uncited_claims=t.uncited_claims,
+            score=t.score,
+        )
+
     return QueryResponseModel(
         query=out.query,
         provider=out.provider,
@@ -193,6 +204,7 @@ def query(
         validation_issues=out.validation_issues,
         citations=out.citations,
         retrieved=retrieved,
+        truthfulness=truthfulness_model,
     )
 
 
