@@ -27,6 +27,7 @@ A live demo of **Doc-Ingestion**, a citation-aware Retrieval-Augmented Generatio
 - **Uploads are disabled** — this demo runs on pre-ingested sample documents only.
 - **No persistence** — embeddings are stored in-memory and reset on each Space restart.
 - **Cloud LLM only** — Ollama (local model) is not available in this hosted environment.
+- **Demo query path** — Streamlit runs demo queries in-process via `RAGOrchestrator`; FastAPI is still started for health/metrics and API compatibility.
 
 ## Run locally with full features
 
@@ -45,6 +46,7 @@ docker compose -f docker/docker-compose.yml up
 ```
 
 Open http://localhost:8501 for the UI.
+For standard local development (non-demo), keep running FastAPI and Streamlit as separate processes.
 
 ## Source code
 

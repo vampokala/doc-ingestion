@@ -6,6 +6,7 @@ import os
 
 import requests
 import streamlit as st
+from src.core.rag_orchestrator import QueryRequest, QueryResponse, RAGOrchestrator
 from src.utils.config import load_config, provider_api_key_env
 from src.web.ingestion_service import run_ingest, save_uploaded_files
 
@@ -32,6 +33,74 @@ _DEMO_QUESTIONS = [
     "What failure mode does citation tracking help detect?",
     "How are embeddings used in a RAG pipeline?",
 ]
+
+
+@st.cache_resource(show_spinner=False)
+def _get_demo_orchestrator() -> RAGOrchestrator:
+    """Build one orchestrator per Streamlit process for demo in-process querying."""
+    return RAGOrchestrator(load_config("config.yaml"))
+
+
+def _normalize_orchestrator_response(out: QueryResponse) -> dict:
+    retrieved = []
+    for item in out.retrieved:
+        legacy = item.to_legacy_dict()
+        retrieved.append(
+            {
+                "id": legacy["id"],
+                "score": float(legacy.get("score") or 0.0),
+                "source": str(legacy.get("source") or "hybrid"),
+                "confidence": float(legacy.get("confidence") or 0.0),
+                "metadata": dict(legacy.get("metadata") or {}),
+                "preview": (legacy.get("text") or "")[:240],
+            }
+        )
+
+    truthfulness = None
+    if out.truthfulness is not None:
+        truthfulness = {
+            "nli_faithfulness": out.truthfulness.nli_faithfulness,
+            "citation_groundedness": out.truthfulness.citation_groundedness,
+            "uncited_claims": out.truthfulness.uncited_claims,
+            "score": out.truthfulness.score,
+        }
+
+    return {
+        "query": out.query,
+        "provider": out.provider,
+        "model": out.model,
+        "answer": out.answer,
+        "processing_time_ms": out.processing_time_ms,
+        "cached": out.cached,
+        "validation_issues": out.validation_issues,
+        "citations": out.citations,
+        "retrieved": retrieved,
+        "truthfulness": truthfulness,
+    }
+
+
+def _run_query_in_demo_mode(payload: dict) -> dict:
+    """Run query through shared orchestrator instead of localhost HTTP API."""
+    orchestrator = _get_demo_orchestrator()
+    req = QueryRequest(
+        query_text=str(payload.get("query", "")),
+        top_k=int(payload.get("top_k", 5)),
+        use_llm=bool(payload.get("use_llm", True)),
+        use_rerank=bool(payload.get("use_rerank", True)),
+        stream=bool(payload.get("stream", False)),
+        provider=str(payload.get("provider") or "") or None,
+        model=str(payload.get("model") or "") or None,
+        provider_api_key=str(payload.get("provider_api_key") or "") or None,
+        include_citations=bool(payload.get("include_citations", True)),
+    )
+    out = orchestrator.run(req)
+    return _normalize_orchestrator_response(out)
+
+
+def _run_query_via_api(payload: dict, headers: dict) -> dict:
+    resp = requests.post(f"{API_BASE_URL}/query", json=payload, headers=headers, timeout=120)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def _truthfulness_badge(score: float) -> str:
@@ -212,18 +281,20 @@ def _render_query_tab() -> None:
             headers["X-API-Key"] = resolved_api_key
         with st.spinner("Running retrieval and generation..."):
             try:
-                resp = requests.post(f"{API_BASE_URL}/query", json=payload, headers=headers, timeout=120)
-                resp.raise_for_status()
-                data = resp.json()
-            except requests.HTTPError:
+                if _DEMO_MODE:
+                    data = _run_query_in_demo_mode(payload)
+                else:
+                    data = _run_query_via_api(payload, headers)
+            except requests.HTTPError as exc:
                 msg = "Request failed."
                 try:
-                    err = resp.json()
+                    err = exc.response.json() if exc.response is not None else {}
                     detail = err.get("detail")
                     if detail:
                         msg = f"Request failed: {detail}"
                 except Exception:
-                    msg = f"Request failed: {resp.status_code} {resp.reason}"
+                    if exc.response is not None:
+                        msg = f"Request failed: {exc.response.status_code} {exc.response.reason}"
                 st.error(msg)
                 return
             except Exception as exc:

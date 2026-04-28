@@ -14,6 +14,8 @@ import threading
 import time
 from pathlib import Path
 
+import requests
+
 logging.basicConfig(level=logging.INFO)
 
 # Ensure repo root is importable regardless of where HF Spaces runs this.
@@ -45,11 +47,28 @@ def _start_api() -> None:
     uvicorn.run(fastapi_app, host="127.0.0.1", port=8000, log_level="warning")
 
 
+def _wait_for_api_ready(timeout_seconds: float = 20.0) -> bool:
+    """Poll the local health endpoint until API is ready or timeout elapses."""
+    deadline = time.time() + timeout_seconds
+    url = "http://127.0.0.1:8000/health"
+    while time.time() < deadline:
+        try:
+            resp = requests.get(url, timeout=1.5)
+            if resp.ok:
+                logging.info("FastAPI ready on %s", url)
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    logging.warning("FastAPI did not become ready within %.1f seconds", timeout_seconds)
+    return False
+
+
 _api_thread = threading.Thread(target=_start_api, daemon=True)
 _api_thread.start()
 
-# Give the API a moment to bind before Streamlit renders its first page.
-time.sleep(3)
+# Wait for API readiness, but keep demo UI available even if API startup is slow.
+_wait_for_api_ready()
 
 # Hand off to the main Streamlit app.
 from src.web.streamlit_app import main  # noqa: E402
