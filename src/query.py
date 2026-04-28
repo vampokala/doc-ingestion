@@ -187,7 +187,11 @@ def run_query(
             )
             print(result.response_text)
 
-        val = gen.validate_response(result.response_text, result.optimized_context or ctx_opt.optimize_context(query_text, docs_for_gen))
+        optimized = result.optimized_context or ctx_opt.optimize_context(
+            query_text,
+            docs_for_gen,
+        )
+        val = gen.validate_response(result.response_text, optimized)
         if val.issues:
             logger.info("validation: issues=%s confidence=%.3f", val.issues, val.confidence)
 

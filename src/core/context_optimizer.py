@@ -5,10 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Sequence, Union
 
-from transformers import AutoTokenizer
-
 from src.core.reranker import RankedResult
 from src.core.retrieval_result import RetrievalResult
+from transformers import AutoTokenizer
 
 
 @dataclass
@@ -109,7 +108,9 @@ class ContextOptimizer:
                 continue
 
             if remaining > 64:
-                compressed = self.compress_document(doc.text, max_tokens=max(remaining - self._count(f"[{doc.id}]\n"), 32))
+                bracket_prefix = f"[{doc.id}]\n"
+                max_for_compress = max(remaining - self._count(bracket_prefix), 32)
+                compressed = self.compress_document(doc.text, max_tokens=max_for_compress)
                 block2 = f"[{doc.id}]\n{compressed}"
                 if self._count(block2) <= self.max_context_tokens - used:
                     selected.append(

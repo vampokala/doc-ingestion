@@ -135,14 +135,50 @@ def _cosine_sim(a: List[float], b: List[float]) -> float:
 _embed_model: Any = None
 
 
+def _hash_embedding(text: str, dim: int = 384) -> List[float]:
+    """Deterministic bag-of-features vector (no network). Used when MiniLM cannot load."""
+    import hashlib
+    import math
+    import re
+
+    vec = [0.0] * dim
+    text_lower = text.lower().strip()
+    if not text_lower:
+        return vec
+    for w in re.findall(r"[a-z0-9]+", text_lower):
+        h = int(hashlib.md5(w.encode(), usedforsecurity=False).hexdigest()[:8], 16)
+        vec[h % dim] += 1.0
+    if len(text_lower) >= 3:
+        for i in range(len(text_lower) - 2):
+            tri = text_lower[i : i + 3]
+            h = int(hashlib.md5(tri.encode(), usedforsecurity=False).hexdigest()[:8], 16)
+            vec[h % dim] += 0.35
+    mag = math.sqrt(sum(x * x for x in vec))
+    if mag == 0:
+        return vec
+    return [x / mag for x in vec]
+
+
 def _embed(texts: List[str]) -> List[List[float]]:
     global _embed_model
-    if _embed_model is None:
+    if _embed_model == "hash":
+        return [_hash_embedding(t) for t in texts]
+    if _embed_model is not None:
+        vecs = _embed_model.encode(texts, show_progress_bar=False)
+        return [v.tolist() for v in vecs]
+    try:
         from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
 
         _embed_model = SentenceTransformer("all-MiniLM-L6-v2")
-    vecs = _embed_model.encode(texts, show_progress_bar=False)
-    return [v.tolist() for v in vecs]
+        vecs = _embed_model.encode(texts, show_progress_bar=False)
+        return [v.tolist() for v in vecs]
+    except Exception:
+        logger.warning(
+            "sentence-transformers unavailable or model download failed; "
+            "using deterministic hash embeddings for answer_relevancy."
+        )
+        _embed_model = "hash"
+        return [_hash_embedding(t) for t in texts]
 
 
 def answer_relevancy(question: str, answer: str) -> float:

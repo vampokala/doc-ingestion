@@ -10,7 +10,6 @@ from typing import Iterator, Optional, Protocol
 
 import ollama
 import requests
-
 from src.utils.config import LLMSettings, provider_api_key_env
 
 
@@ -25,7 +24,10 @@ def _raise_for_status_with_detail(resp: requests.Response, provider: str) -> Non
         except Exception:
             detail = (resp.text or "").strip()
         detail = detail[:1200]
-        msg = f"{provider} API error ({resp.status_code}): {detail}" if detail else f"{provider} API error ({resp.status_code})"
+        if detail:
+            msg = f"{provider} API error ({resp.status_code}): {detail}"
+        else:
+            msg = f"{provider} API error ({resp.status_code})"
         raise ValueError(msg) from exc
 
 
@@ -78,12 +80,19 @@ class OllamaProvider:
     def _chat_with_retry(self, *, model: str, prompt: str, stream: bool):
         attempts = 3
         last_error: Exception | None = None
+        messages = [{"role": "user", "content": prompt}]
         for idx in range(attempts):
             try:
+                if stream:
+                    return self._client.chat(
+                        model=model,
+                        messages=messages,
+                        stream=True,
+                    )
                 return self._client.chat(
                     model=model,
-                    messages=[{"role": "user", "content": prompt}],
-                    stream=stream,
+                    messages=messages,
+                    stream=False,
                 )
             except Exception as exc:  # transient local daemon failures
                 last_error = exc

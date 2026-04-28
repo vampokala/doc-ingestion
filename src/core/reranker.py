@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import Any, List, Sequence, Tuple, cast
 
 from sentence_transformers import CrossEncoder
-
 from src.core.retrieval_result import RetrievalResult
 
 
@@ -46,7 +45,7 @@ class CrossEncoderReranker:
         scores: List[float] = []
         for start in range(0, len(pairs), self.batch_size):
             batch = pairs[start : start + self.batch_size]
-            raw = self.model.predict(batch)
+            raw = self.model.predict(cast(Any, batch))
             # predict may return ndarray or list of floats
             for s in raw:  # type: ignore[union-attr]
                 scores.append(float(s))

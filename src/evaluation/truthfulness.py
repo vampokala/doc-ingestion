@@ -8,7 +8,7 @@ Labels for that model: contradiction=0, entailment=1, neutral=2.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
 
 

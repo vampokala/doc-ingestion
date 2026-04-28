@@ -11,7 +11,12 @@ class CitationVerifier:
     def _tokenize(text: str) -> set[str]:
         return {t for t in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(t) > 2}
 
-    def score_citation(self, response_text: str, citation: Dict[str, Any], documents: Sequence[Dict[str, Any]]) -> float:
+    def score_citation(
+        self,
+        response_text: str,
+        citation: Dict[str, Any],
+        documents: Sequence[Dict[str, Any]],
+    ) -> float:
         chunk_id = str(citation.get("chunk_id", ""))
         doc = next((d for d in documents if str(d.get("id")) == chunk_id), None)
         if not doc:
@@ -23,7 +28,12 @@ class CitationVerifier:
         overlap = len(response_terms & doc_terms) / max(len(response_terms), 1)
         return max(0.0, min(1.0, 0.25 + overlap * 0.75))
 
-    def verify(self, response_text: str, citations: Sequence[Dict[str, Any]], documents: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def verify(
+        self,
+        response_text: str,
+        citations: Sequence[Dict[str, Any]],
+        documents: Sequence[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         output: List[Dict[str, Any]] = []
         for citation in citations:
             score = self.score_citation(response_text, citation, documents)

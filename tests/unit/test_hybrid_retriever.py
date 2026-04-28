@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock
 
-import pytest
-
 from src.core.bm25_search import BM25Search
 from src.core.hybrid_retriever import FusionConfig, HybridRetriever, reciprocal_rank_fusion
 from src.core.vector_search import VectorSearch

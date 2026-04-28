@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Dict, Iterable, List, Mapping, Sequence, Set
+from typing import Dict, Iterable, Mapping, Sequence, Set
 
 
 def precision_at_k(ranked_ids: Sequence[str], relevant: Set[str], k: int) -> float:
