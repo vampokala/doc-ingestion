@@ -11,11 +11,27 @@ from src.web.ingestion_service import run_ingest, save_uploaded_files
 
 API_BASE_URL = os.getenv("DOC_INGEST_API_URL", "http://127.0.0.1:8000")
 UPLOAD_DIR = os.getenv("DOC_UPLOAD_DIR", "data/documents/uploads")
-API_KEY = os.getenv("DOC_API_KEY", "")
+# DOC_API_KEY takes precedence; fall back to first key in DOC_API_KEYS (set by spaces/app.py).
+API_KEY = os.getenv("DOC_API_KEY") or (os.getenv("DOC_API_KEYS", "").split(",")[0].strip())
 DEFAULT_UI_GATEWAY_KEY = os.getenv("DOC_API_KEY_DEFAULT", "ev-key-1")
 
 # When DOC_PROFILE=demo the UI disables uploads and shows a banner.
 _DEMO_MODE = os.getenv("DOC_PROFILE", "").strip().lower() == "demo"
+
+_DEMO_QUESTIONS = [
+    "What is Retrieval-Augmented Generation?",
+    "What are the two main phases of a RAG system?",
+    "How does hybrid retrieval work?",
+    "What is BM25 and how does it differ from vector search?",
+    "What are the weaknesses of BM25?",
+    "What is Reciprocal Rank Fusion (RRF)?",
+    "What is a vector database?",
+    "What is HNSW?",
+    "What is the difference between Chroma and Qdrant?",
+    "Why use hybrid retrieval instead of just dense vector search?",
+    "What failure mode does citation tracking help detect?",
+    "How are embeddings used in a RAG pipeline?",
+]
 
 
 def _truthfulness_badge(score: float) -> str:
@@ -100,6 +116,14 @@ def _provider_key_from_session(provider: str) -> str:
 def _render_query_tab() -> None:
     cfg = load_config("config.yaml")
     st.subheader("Ask a question")
+
+    if _DEMO_MODE:
+        st.markdown("**Try one of these sample questions** (click to fill):")
+        cols = st.columns(2)
+        for idx, q in enumerate(_DEMO_QUESTIONS):
+            if cols[idx % 2].button(q, key=f"demo_q_{idx}", use_container_width=True):
+                st.session_state["demo_prompt"] = q
+        st.markdown("---")
     providers = list(cfg.llm.allowed_models_by_provider.keys())
     default_provider = cfg.llm.default_provider if cfg.llm.default_provider in providers else providers[0]
     selected_provider = st.selectbox("Provider", options=providers, index=providers.index(default_provider))
@@ -109,7 +133,13 @@ def _render_query_tab() -> None:
     selected_model = st.selectbox("Model", options=model_options, index=idx)
     remember = st.checkbox("Remember last selection", value=True)
     stream = st.checkbox("Stream response", value=False, help="Currently treated as standard response in API.")
-    prompt = st.text_area("Prompt", height=160, placeholder="Ask something about your ingested documents...")
+    default_prompt = str(st.session_state.pop("demo_prompt", ""))
+    prompt = st.text_area(
+        "Prompt",
+        value=default_prompt,
+        height=160,
+        placeholder="Ask something about your ingested documents...",
+    )
     auth_required = bool(getattr(cfg, "api", None) and cfg.api.auth_enabled)
     default_gateway_key = _gateway_default_from_config(cfg)
     resolved_api_key = _render_auth_controls(auth_required, default_gateway_key)
