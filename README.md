@@ -1,3 +1,15 @@
+---
+title: Doc Ingestion RAG Demo
+emoji: 📚
+colorFrom: blue
+colorTo: indigo
+sdk: streamlit
+sdk_version: "1.37.0"
+app_file: spaces/app.py
+pinned: false
+license: mit
+---
+
 # Doc-Ingestion
 
 Citation-aware RAG system for ingesting documents and generating grounded answers with truthfulness scores — CLI, API, and Streamlit UI.
