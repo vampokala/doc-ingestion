@@ -31,6 +31,7 @@ Citation-aware RAG system for ingesting documents and generating grounded answer
 ### Option 1 — Try online (no install)
 
 Open the [Hugging Face Spaces demo](https://huggingface.co/spaces/vampokala/doc-ingestion). Sample documents about RAG, vector databases, and BM25 are pre-loaded. Paste your OpenAI, Anthropic, or Gemini key in the sidebar.
+In hosted demo mode (`DOC_PROFILE=demo`), Streamlit executes queries in-process through the shared orchestrator so demo usage is not blocked by localhost API startup races.
 
 ---
 
@@ -78,6 +79,8 @@ PYTHONPATH=. streamlit run src/web/streamlit_app.py
 # Or query from CLI
 PYTHONPATH=. python -m src.query "What is RAG?"
 ```
+
+Note: non-demo local mode keeps the standard split architecture (Streamlit calls FastAPI over HTTP), so running both API and UI processes is still required.
 
 ---
 

@@ -30,6 +30,8 @@ _cfg = load_config("config.yaml")
 _orchestrator = RAGOrchestrator(_cfg)
 _rate_window: Dict[str, Deque[float]] = defaultdict(deque)
 _redis_client: "Redis | None" = None
+# Redis is a base dependency in this project; keep a feature flag for defensive gating.
+_REDIS_AVAILABLE = True
 _logger = logging.getLogger("api.audit")
 
 
