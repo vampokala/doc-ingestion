@@ -10,10 +10,10 @@ from typing import List
 from unittest.mock import patch
 
 import pytest
+from src import query as query_mod
 from src.core.bm25_index import BM25Index
 from src.core.document_processor import DocumentProcessor
 from src.core.query_processor import QueryProcessor
-from src import query as query_mod
 from src.utils.database import VectorDatabase
 
 # ---------------------------------------------------------------------------
@@ -139,7 +139,11 @@ def vector_db(tmp_path):
 
 @pytest.fixture
 def mock_embedding():
-    with patch("src.utils.database.ollama.embeddings", return_value={"embedding": FAKE_EMBEDDING}):
+    """Avoid Ollama in CI; VectorDatabase uses Client.embeddings(), not ollama.embeddings."""
+    if os.getenv("INTEGRATION_LIVE") == "1":
+        yield
+        return
+    with patch.object(VectorDatabase, "generate_embedding", return_value=list(FAKE_EMBEDDING)):
         yield
 
 

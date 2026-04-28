@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from src.utils.database import VectorDatabase
 
@@ -22,12 +22,13 @@ class VectorSearch:
 
         collection = self._db.chroma_client.get_or_create_collection(name=self._collection)
         results = collection.query(
-            query_embeddings=[embedding],
+            query_embeddings=cast(Any, [embedding]),
             n_results=k,
         )
         ids: List[str] = (results["ids"] or [[]])[0]
         docs: List[str] = (results["documents"] or [[]])[0]
-        metas: List[Dict] = (results["metadatas"] or [[]])[0]
+        raw_metas = (results["metadatas"] or [[]])[0]
+        metas: List[Dict[str, Any]] = cast(List[Dict[str, Any]], raw_metas)
         dists: List[float] = (results["distances"] or [[]])[0]
         return [
             {"id": id_, "text": doc, "metadata": meta or {}, "distance": dist}

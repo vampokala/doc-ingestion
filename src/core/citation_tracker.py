@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Sequence
 
-
 _DOC_RE = re.compile(r"\[Doc\s+([^\]]+)\]", re.IGNORECASE)
 
 

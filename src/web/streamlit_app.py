@@ -6,7 +6,6 @@ import os
 
 import requests
 import streamlit as st
-
 from src.utils.config import load_config, provider_api_key_env
 from src.web.ingestion_service import run_ingest, save_uploaded_files
 

@@ -6,14 +6,14 @@ import json
 import logging
 import time
 from collections import defaultdict, deque
-from typing import Deque, Dict, Iterator
+from typing import Any, Deque, Dict, Iterator, cast
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from redis import Redis
 from redis.exceptions import RedisError
-
 from src.api.models import (
+    CitationModel,
     HealthModel,
     MetricsModel,
     QueryRequestModel,
@@ -73,7 +73,7 @@ def _enforce_rate_limit(client_key: str) -> None:
         now_bucket = int(time.time() // 60)
         redis_key = f"ratelimit:{client_key}:{now_bucket}"
         try:
-            current = int(redis_client.incr(redis_key))
+            current = int(cast(Any, redis_client.incr(redis_key)))
             if current == 1:
                 redis_client.expire(redis_key, 120)
             if current > limit:
@@ -194,6 +194,7 @@ def query(
             score=t.score,
         )
 
+    citation_models = [CitationModel.model_validate(c) for c in out.citations]
     return QueryResponseModel(
         query=out.query,
         provider=out.provider,
@@ -202,7 +203,7 @@ def query(
         processing_time_ms=out.processing_time_ms,
         cached=out.cached,
         validation_issues=out.validation_issues,
-        citations=out.citations,
+        citations=citation_models,
         retrieved=retrieved,
         truthfulness=truthfulness_model,
     )
@@ -247,7 +248,13 @@ def query_stream(
                 provider=final.provider,
                 model=final.model,
             )
-            yield f"data: {json.dumps({'type': 'final', 'citations': final.citations, 'provider': final.provider, 'model': final.model})}\n\n"
+            final_payload = {
+                "type": "final",
+                "citations": final.citations,
+                "provider": final.provider,
+                "model": final.model,
+            }
+            yield f"data: {json.dumps(final_payload)}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as exc:
             _audit_log("stream_failed", request, client_key=client_key, error=str(exc))

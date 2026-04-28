@@ -53,9 +53,7 @@ class VectorDatabase:
     def qdrant_client(self) -> Any:
         if self._qdrant_client is None:
             from qdrant_client import QdrantClient  # noqa: PLC0415
-            from qdrant_client.http.models import (  # noqa: PLC0415
-                Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams,
-            )
+
             self._qdrant_client = QdrantClient(host=self._qdrant_host, port=self._qdrant_port)
             logger.info("Qdrant initialized at %s:%s", self._qdrant_host, self._qdrant_port)
         return self._qdrant_client
