@@ -27,8 +27,9 @@ os.environ.setdefault("DOC_PROFILE", "demo")
 # Disable auth so the demo doesn't require an API key header.
 os.environ.setdefault("DOC_API_KEYS", "demo-key")
 
-# No local Ollama daemon on Spaces — users supply cloud provider keys.
+# No local Ollama daemon on Spaces — use sentence-transformers for embeddings.
 os.environ.setdefault("OLLAMA_BASE_URL", "http://localhost:11434")
+os.environ.setdefault("DOC_EMBEDDING_PROVIDER", "sentence_transformers")
 
 # Bootstrap sample documents on first run.
 from spaces.bootstrap_demo import bootstrap_if_needed  # noqa: E402

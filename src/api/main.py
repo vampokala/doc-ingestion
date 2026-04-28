@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections import defaultdict, deque
 from typing import Any, Deque, Dict, Iterator, cast
@@ -28,7 +29,7 @@ app = FastAPI(title="Doc Ingestion Citation API", version="0.1.0")
 _cfg = load_config("config.yaml")
 _orchestrator = RAGOrchestrator(_cfg)
 _rate_window: Dict[str, Deque[float]] = defaultdict(deque)
-_redis_client: Redis | None = None
+_redis_client: "Redis | None" = None
 _logger = logging.getLogger("api.audit")
 
 
@@ -52,17 +53,17 @@ def _audit_log(event: str, request: Request, **fields: object) -> None:
     _logger.info(json.dumps(payload, separators=(",", ":")))
 
 
-def _get_redis() -> Redis | None:
+def _get_redis() -> "Redis | None":
     global _redis_client
+    if not _REDIS_AVAILABLE or not _cfg.api.redis_rate_limit_enabled:
+        return None
     if _redis_client is not None:
         return _redis_client
-    if not _cfg.api.redis_rate_limit_enabled:
-        return None
     try:
         _redis_client = Redis.from_url(_cfg.api.redis_url, decode_responses=True)
         _redis_client.ping()
         return _redis_client
-    except RedisError:
+    except (RedisError, Exception):
         return None
 
 
@@ -100,6 +101,8 @@ def _is_local_provider(provider: str | None) -> bool:
 
 def _verify_auth(api_key: str | None, provider: str | None = None) -> None:
     if not _cfg.api.auth_enabled:
+        return
+    if os.getenv("DOC_PROFILE", "").strip().lower() == "demo":
         return
     # Local Ollama queries do not require API auth by default.
     if _is_local_provider(provider):
