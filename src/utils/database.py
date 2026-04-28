@@ -23,6 +23,8 @@ OLLAMA_MODEL = "nomic-embed-text"
 EMBEDDING_DIM = 768
 BATCH_SIZE = 100
 
+_ST_MODEL_NAME = "all-MiniLM-L6-v2"
+
 
 class VectorDatabase:
     def __init__(
@@ -39,6 +41,8 @@ class VectorDatabase:
         self._chroma_client: Optional[chromadb.ClientAPI] = None
         self._qdrant_client: Optional[Any] = None  # QdrantClient, imported lazily
         self._ollama_client = ollama.Client(host=self._resolve_ollama_host())
+        self._st_model: Optional[Any] = None  # SentenceTransformer, loaded lazily
+        self._embedding_provider = os.getenv("DOC_EMBEDDING_PROVIDER", "ollama").lower()
 
     # --- client accessors (lazy init) ---
 
@@ -70,7 +74,16 @@ class VectorDatabase:
             or "http://localhost:11434"
         )
 
+    def _generate_st_embedding(self, text: str) -> List[float]:
+        if self._st_model is None:
+            from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+            self._st_model = SentenceTransformer(_ST_MODEL_NAME)
+            logger.info("SentenceTransformer loaded: %s", _ST_MODEL_NAME)
+        return self._st_model.encode(text, show_progress_bar=False).tolist()
+
     def generate_embedding(self, text: str) -> List[float]:
+        if self._embedding_provider == "sentence_transformers":
+            return self._generate_st_embedding(text)
         attempts = 3
         last_error: Exception | None = None
         for idx in range(attempts):
