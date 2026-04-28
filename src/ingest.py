@@ -10,11 +10,11 @@ import argparse
 import os
 import sys
 
-from src.utils.config import load_config
-from src.utils.log import get_logger, track_duration, metrics
-from src.core.document_processor import DocumentProcessor
 from src.core.bm25_index import BM25Index
+from src.core.document_processor import DocumentProcessor
+from src.utils.config import load_config
 from src.utils.database import VectorDatabase
+from src.utils.log import get_logger, metrics, track_duration
 
 logger = get_logger("ingest")
 

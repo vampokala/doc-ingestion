@@ -118,20 +118,6 @@ class EvaluationSettings(BaseModel):
     )
 
 
-class Config(BaseModel):
-    chunk_size: int = Field(1000, description="Size of text chunks")
-    overlap: int = Field(200, description="Overlap between chunks")
-    data_dir: str = Field("data", description="Directory for input files")
-    output_dir: str = Field("output", description="Directory for processed output")
-    log_level: str = Field("INFO", description="Logging level")
-    reranker: RerankerSettings = Field(default_factory=RerankerSettings)
-    context: ContextSettings = Field(default_factory=ContextSettings)
-    generation: GenerationSettings = Field(default_factory=GenerationSettings)
-    llm: LLMSettings = Field(default_factory=LLMSettings)
-    api: "APISettings" = Field(default_factory=lambda: APISettings())
-    evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
-
-
 class APISettings(BaseModel):
     auth_enabled: bool = Field(True, description="Require API key for protected routes")
     api_keys: List[str] = Field(default_factory=list, description="Static API keys (optional)")
@@ -146,6 +132,20 @@ class APISettings(BaseModel):
         if not from_env.strip():
             return []
         return [x.strip() for x in from_env.split(",") if x.strip()]
+
+
+class Config(BaseModel):
+    chunk_size: int = Field(1000, description="Size of text chunks")
+    overlap: int = Field(200, description="Overlap between chunks")
+    data_dir: str = Field("data", description="Directory for input files")
+    output_dir: str = Field("output", description="Directory for processed output")
+    log_level: str = Field("INFO", description="Logging level")
+    reranker: RerankerSettings = Field(default_factory=RerankerSettings)
+    context: ContextSettings = Field(default_factory=ContextSettings)
+    generation: GenerationSettings = Field(default_factory=GenerationSettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
+    api: APISettings = Field(default_factory=APISettings)
+    evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
 
 
 def provider_api_key_env(provider: str) -> str | None:

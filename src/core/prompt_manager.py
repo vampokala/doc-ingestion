@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Dict
 
 import yaml
-
 from src.core.context_optimizer import OptimizedContext
 from src.core.query_processor import QueryIntent
 

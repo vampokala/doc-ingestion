@@ -86,7 +86,14 @@ class RAGOrchestrator:
         db = VectorDatabase(mode="dev", chroma_path=CHROMA_PATH)
         return index, db, QueryProcessor()
 
-    def _retrieve(self, query_text: str, index: BM25Index, db: VectorDatabase, qp: QueryProcessor, top_k: int) -> List[RetrievalResult]:
+    def _retrieve(
+        self,
+        query_text: str,
+        index: BM25Index,
+        db: VectorDatabase,
+        qp: QueryProcessor,
+        top_k: int,
+    ) -> List[RetrievalResult]:
         processed = qp.process_query(query_text)
         bm25_query = " ".join(processed.all_terms)
         hybrid = HybridRetriever(BM25Search(index), VectorSearch(db, COLLECTION_NAME))

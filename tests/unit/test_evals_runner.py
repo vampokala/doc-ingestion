@@ -6,12 +6,8 @@ All tests use MockPipeline so no real LLM, vector store, or NLI model is needed.
 from __future__ import annotations
 
 import json
-import os
-import tempfile
-from pathlib import Path
 
 import pytest
-
 from evals.run_evals import (
     MockPipeline,
     aggregate,
@@ -23,7 +19,6 @@ from evals.run_evals import (
     load_dataset,
     write_report,
 )
-
 
 # ---------------------------------------------------------------------------
 # Dataset loading

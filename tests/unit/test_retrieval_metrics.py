@@ -2,7 +2,6 @@ import json
 import os
 
 import pytest
-
 from src.evaluation.retrieval_metrics import (
     evaluate_all,
     f1_at_k,
