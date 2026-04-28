@@ -8,19 +8,14 @@
 import logging
 import os
 import time
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 import chromadb
 import ollama
-from qdrant_client import QdrantClient
-from qdrant_client.http.models import (
-    Distance,
-    FieldCondition,
-    Filter,
-    MatchValue,
-    PointStruct,
-    VectorParams,
-)
+
+# qdrant_client is imported lazily inside _init_qdrant() so the module can be
+# imported on environments where qdrant-client is not installed (e.g. HF Spaces
+# running in Chroma-only / dev mode).
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +37,7 @@ class VectorDatabase:
         self._qdrant_host = qdrant_host
         self._qdrant_port = qdrant_port
         self._chroma_client: Optional[chromadb.ClientAPI] = None
-        self._qdrant_client: Optional[QdrantClient] = None
+        self._qdrant_client: Optional[Any] = None  # QdrantClient, imported lazily
         self._ollama_client = ollama.Client(host=self._resolve_ollama_host())
 
     # --- client accessors (lazy init) ---
@@ -55,8 +50,12 @@ class VectorDatabase:
         return self._chroma_client
 
     @property
-    def qdrant_client(self) -> QdrantClient:
+    def qdrant_client(self) -> Any:
         if self._qdrant_client is None:
+            from qdrant_client import QdrantClient  # noqa: PLC0415
+            from qdrant_client.http.models import (  # noqa: PLC0415
+                Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams,
+            )
             self._qdrant_client = QdrantClient(host=self._qdrant_host, port=self._qdrant_port)
             logger.info("Qdrant initialized at %s:%s", self._qdrant_host, self._qdrant_port)
         return self._qdrant_client
@@ -97,6 +96,7 @@ class VectorDatabase:
             self.chroma_client.get_or_create_collection(name=collection_name)
             logger.info("ChromaDB collection %r ready", collection_name)
         else:
+            from qdrant_client.http.models import Distance, VectorParams  # noqa: PLC0415
             if not self.qdrant_client.collection_exists(collection_name):
                 self.qdrant_client.create_collection(
                     collection_name=collection_name,
@@ -129,6 +129,7 @@ class VectorDatabase:
                     metadatas=metadatas,  # type: ignore[arg-type]
                 )
             else:
+                from qdrant_client.http.models import PointStruct  # noqa: PLC0415
                 points = [
                     PointStruct(
                         id=doc["id"],
@@ -170,7 +171,8 @@ class VectorDatabase:
                 for id_, doc, meta, dist in zip(ids, docs, metas, dists)
             ]
         else:
-            search_filter: Optional[Filter] = None
+            from qdrant_client.http.models import FieldCondition, Filter, MatchValue  # noqa: PLC0415
+            search_filter: Optional[Any] = None
             if filters:
                 conditions: Sequence[FieldCondition] = [
                     FieldCondition(key=k, match=MatchValue(value=v))
