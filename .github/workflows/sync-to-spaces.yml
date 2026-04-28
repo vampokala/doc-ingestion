@@ -3,11 +3,6 @@ name: Sync to Hugging Face Spaces
 on:
   push:
     branches: [main]
-    paths:
-      - "spaces/**"
-      - "src/**"
-      - "data/sample/**"
-      - "config.yaml"
 
   workflow_dispatch:
 
