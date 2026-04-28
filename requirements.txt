@@ -1,0 +1,4 @@
+# Root requirements.txt — used by Hugging Face Spaces.
+# Slimmed deps (no Redis, Qdrant, bert-score, sacrebleu).
+# For local development use requirements/base.txt instead.
+-r spaces/requirements.txt
