@@ -111,7 +111,6 @@ jobs:
 
   evals-golden:
     name: Golden evals (Anthropic Haiku)
-    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
     runs-on: ubuntu-latest
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -123,10 +122,16 @@ jobs:
           python-version: "3.13"
           cache: pip
 
+      - name: Skip golden evals when secret is missing
+        if: ${{ env.ANTHROPIC_API_KEY == '' }}
+        run: echo "ANTHROPIC_API_KEY not set; skipping golden evals."
+
       - name: Install dependencies
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
         run: pip install -r requirements/base.txt
 
       - name: Run golden evals (live pipeline, Anthropic Haiku)
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
         run: |
           PYTHONPATH=. python -m evals.run_evals \
             --dataset evals/datasets/golden_ci.jsonl \
@@ -137,7 +142,7 @@ jobs:
             --correctness-threshold 0.2
 
       - name: Upload golden eval report
-        if: always()
+        if: ${{ always() && env.ANTHROPIC_API_KEY != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: eval-report-golden
