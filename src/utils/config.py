@@ -135,8 +135,9 @@ class APISettings(BaseModel):
 
 
 class Config(BaseModel):
-    chunk_size: int = Field(1000, description="Size of text chunks")
-    overlap: int = Field(200, description="Overlap between chunks")
+    chunk_size: int = Field(600, description="Chunk size in tokens")
+    overlap: int = Field(100, description="Chunk overlap in tokens")
+    chunk_tokenizer: str = Field("gpt2", description="Tokenizer encoding used for ingestion chunking")
     data_dir: str = Field("data", description="Directory for input files")
     output_dir: str = Field("output", description="Directory for processed output")
     log_level: str = Field("INFO", description="Logging level")

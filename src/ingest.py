@@ -37,10 +37,19 @@ def collect_files(path: str) -> list[str]:
 def ingest(docs_path: str) -> tuple[BM25Index, VectorDatabase]:
     # ── 1. Config ────────────────────────────────────────────────────────────
     cfg = load_config("config.yaml")
-    logger.info("Config loaded: chunk_size=%d overlap=%d", cfg.chunk_size, cfg.overlap)
+    logger.info(
+        "Config loaded: chunk_size=%d overlap=%d tokenizer=%s",
+        cfg.chunk_size,
+        cfg.overlap,
+        cfg.chunk_tokenizer,
+    )
 
     # ── 2. Components ─────────────────────────────────────────────────────────
-    processor = DocumentProcessor(chunk_size=cfg.chunk_size, overlap=cfg.overlap)
+    processor = DocumentProcessor(
+        chunk_size=cfg.chunk_size,
+        overlap=cfg.overlap,
+        tokenizer_name=cfg.chunk_tokenizer,
+    )
     index = BM25Index()
     db = VectorDatabase(mode="dev", chroma_path="data/embeddings/chroma")
     db.create_collection(COLLECTION_NAME)

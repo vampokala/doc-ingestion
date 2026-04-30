@@ -108,3 +108,42 @@ jobs:
         with:
           name: eval-report
           path: evals/reports/
+
+  evals-golden:
+    name: Golden evals (Anthropic Haiku)
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Skip golden evals when secret is missing
+        if: ${{ env.ANTHROPIC_API_KEY == '' }}
+        run: echo "ANTHROPIC_API_KEY not set; skipping golden evals."
+
+      - name: Install dependencies
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        run: pip install -r requirements/base.txt
+
+      - name: Run golden evals (live pipeline, Anthropic Haiku)
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        run: |
+          PYTHONPATH=. python -m evals.run_evals \
+            --dataset evals/datasets/golden_ci.jsonl \
+            --judge-provider anthropic \
+            --judge-model claude-haiku-4-5 \
+            --output evals/reports/ \
+            --faithfulness-threshold 0.7 \
+            --correctness-threshold 0.2
+
+      - name: Upload golden eval report
+        if: ${{ always() && env.ANTHROPIC_API_KEY != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-golden
+          path: evals/reports/

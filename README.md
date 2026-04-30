@@ -12,60 +12,171 @@ license: mit
 
 # Doc-Ingestion
 
-Citation-aware RAG system for ingesting documents and generating grounded answers with truthfulness scores — CLI, API, and Streamlit UI.
+Doc-Ingestion is a citation-aware RAG system that turns private document collections into grounded question-answering experiences. It demonstrates how to ingest documents, retrieve the right evidence, generate answers from that evidence, and return citations plus truthfulness signals through a Streamlit app, FastAPI service, and CLI.
 
-> **[Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/vampokala/doc-ingestion)** — no install required.
+> **[Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/vampokala/doc-ingestion)** - no install required.
 
-## What it does
+## Why This Project Exists
 
-- Ingests `.pdf`, `.docx`, `.txt`, `.md`, `.html` files into a hybrid BM25 + vector index
-- Retrieves using Reciprocal Rank Fusion across sparse and dense search, with optional cross-encoder reranking
-- Generates answers via any LLM provider (Ollama, OpenAI, Anthropic, Gemini) with citation tracking
-- Scores every response for **truthfulness** (NLI faithfulness + citation groundedness)
-- Exposes a FastAPI backend and a Streamlit UI
+Most teams have knowledge scattered across PDFs, Word docs, markdown notes, text files, and HTML exports. Traditional search can find matching words, but it does not synthesize answers. Generic LLMs can synthesize answers, but they may not know what is inside your documents and can hallucinate without evidence.
 
----
+This project solves that gap: ingest your documents, ask natural-language questions, and receive answers grounded in retrieved source chunks with citations and quality signals.
+
+## What It Showcases
+
+For non-technical reviewers, this is a working document Q&A product: load documents, ask questions, inspect answers, and verify sources.
+
+For technical reviewers, this is an end-to-end RAG reference implementation with:
+
+- Multi-format ingestion for `.pdf`, `.docx`, `.txt`, `.md`, and `.html`
+- Token-aware chunking and persistent document indexes
+- Hybrid retrieval using BM25 keyword search plus vector search
+- Weighted Reciprocal Rank Fusion (RRF) across sparse and dense results
+- Optional cross-encoder reranking for stronger final context
+- Multi-provider LLM routing across Ollama, OpenAI, Anthropic, and Gemini
+- Citation tracking, citation verification, and inline truthfulness scoring
+- FastAPI, Streamlit, CLI, Docker, Redis-backed rate limiting, and offline evals
+
+## Product Capabilities
+
+This is the user-facing flow: documents become a searchable knowledge base, and users ask questions against that knowledge base instead of relying on ungrounded model memory.
+
+```mermaid
+flowchart LR
+  subgraph userLayer [User Experience]
+    upload[Upload Or Select Documents]
+    ask[Ask Natural Language Questions]
+    review[Review Answer With Citations]
+  end
+
+  subgraph knowledgeLayer [Knowledge Base]
+    ingest[Ingest Documents]
+    stored[Documents Stored And Indexed]
+  end
+
+  subgraph outcomeLayer [Business Outcome]
+    grounded[Grounded RAG Answer]
+    citations[Source Citations]
+    trust[Truthfulness Signal]
+  end
+
+  upload --> ingest --> stored
+  stored --> ask
+  ask --> grounded
+  grounded --> citations
+  grounded --> trust
+  citations --> review
+  trust --> review
+```
+
+## Under The Hood
+
+The technical pipeline combines ingestion, sparse retrieval, semantic retrieval, rank fusion, reranking, model routing, citation verification, and answer scoring.
+
+```mermaid
+flowchart TB
+  subgraph ingestionLayer [Ingestion Layer]
+    direction LR
+    documents[Documents]
+    ingest[Ingest]
+    chunk[Chunk]
+    embed[Create Embeddings]
+    vectorStore[Chroma Or Qdrant]
+    keywordIndex[BM25 Keyword Index]
+  end
+
+  subgraph retrievalLayer [Retrieval Layer]
+    direction LR
+    query[User Query]
+    keyword[Keyword Retrieval]
+    semantic[Semantic Retrieval]
+    rrf[Weighted RRF Fusion]
+    rerank[Cross Encoder Rerank]
+  end
+
+  subgraph generationLayer [Generation And Trust Layer]
+    direction LR
+    context[Context Optimizer]
+    aggregator[LLM Provider Aggregator]
+    answer[Answer]
+    citations[Citation Verification]
+    truth[Truthfulness Score]
+  end
+
+  documents --> ingest
+  ingest --> chunk
+  chunk --> embed --> vectorStore
+  chunk --> keywordIndex
+
+  query --> keyword
+  query --> semantic
+  keywordIndex --> keyword
+  vectorStore --> semantic
+  keyword --> rrf
+  semantic --> rrf
+
+  rrf --> rerank --> context --> aggregator --> answer
+  answer --> citations --> truth
+```
+
+## How Answer Quality Is Protected
+
+Doc-Ingestion is designed around a grounding contract: retrieve evidence first, generate from that evidence, then report how well the answer is supported.
+
+- **Hybrid retrieval:** BM25 catches exact terms, acronyms, and names; vector search catches semantic matches. The results are fused with weighted RRF in [`src/core/hybrid_retriever.py`](src/core/hybrid_retriever.py).
+- **Reranking:** A cross-encoder reranker narrows the final context before generation in [`src/core/reranker.py`](src/core/reranker.py).
+- **Context control:** Retrieved chunks are packed into the prompt within a configured token budget in [`src/core/context_optimizer.py`](src/core/context_optimizer.py).
+- **Provider routing:** The same query path can route to Ollama, OpenAI, Anthropic, or Gemini through [`src/core/llm_provider.py`](src/core/llm_provider.py).
+- **Citations:** Generated citation markers are mapped back to retrieved chunks by [`src/core/citation_tracker.py`](src/core/citation_tracker.py) and verified by [`src/core/citation_verifier.py`](src/core/citation_verifier.py).
+- **Truthfulness:** Each response can include NLI faithfulness and citation groundedness from [`src/evaluation/truthfulness.py`](src/evaluation/truthfulness.py).
+
+## What You Can Try
+
+- Use the hosted [Hugging Face Spaces demo](https://huggingface.co/spaces/vampokala/doc-ingestion) with preloaded sample documents.
+- Upload or ingest your own files locally.
+- Ask questions through Streamlit, FastAPI, or the CLI.
+- Inspect answers, citations, source evidence, and truthfulness scores.
+- Switch LLM providers and models per request when credentials are configured.
+
+In hosted demo mode (`DOC_PROFILE=demo`), Streamlit executes queries in-process through the shared orchestrator so the demo is not blocked by localhost API startup races. Local non-demo mode uses the standard split architecture where Streamlit calls FastAPI over HTTP.
+
+## Tech Stack Snapshot
+
+- **App and API:** Streamlit, FastAPI, Pydantic, Uvicorn
+- **Document processing:** PyPDF2, python-docx, BeautifulSoup, markdown parsing, token-aware chunking
+- **Retrieval:** BM25, Chroma, Qdrant, sentence-transformers, Ollama embeddings
+- **Ranking:** weighted RRF fusion, `cross-encoder/ms-marco-MiniLM-L-6-v2`
+- **Generation:** Ollama, OpenAI, Anthropic, Gemini
+- **Evaluation:** NLI faithfulness, citation groundedness, golden datasets, RAGAS-style offline harness
+- **Operations:** Docker Compose, Redis-backed rate limiting with in-memory fallback, Hugging Face Spaces deployment
 
 ## Quickstart
 
-### Option 1 — Try online (no install)
+### Try Online
 
-Open the [Hugging Face Spaces demo](https://huggingface.co/spaces/vampokala/doc-ingestion). Sample documents about RAG, vector databases, and BM25 are pre-loaded. Paste your OpenAI, Anthropic, or Gemini key in the sidebar.
-In hosted demo mode (`DOC_PROFILE=demo`), Streamlit executes queries in-process through the shared orchestrator so demo usage is not blocked by localhost API startup races.
+Open the [Hugging Face Spaces demo](https://huggingface.co/spaces/vampokala/doc-ingestion). Sample documents about RAG, vector databases, and BM25 are preloaded. Paste your OpenAI, Anthropic, or Gemini key in the sidebar if you want to use a cloud provider.
 
----
-
-### Option 2 — Run locally with Docker (one command)
+### Run Locally With Docker
 
 ```bash
 git clone https://github.com/vampokala/Doc-Ingestion
 cd Doc-Ingestion
 cp docker/.env.example docker/.env
-# Edit docker/.env to add your API keys (OPENAI_API_KEY etc.)
+# Edit docker/.env to add your API keys if needed.
 docker compose -f docker/docker-compose.yml up
 ```
 
-Open http://localhost:8501 (Streamlit UI) or http://localhost:8000 (API).
+Open `http://localhost:8501` for Streamlit or `http://localhost:8000` for the API.
 
----
-
-### Option 3 — Run from source (Python venv)
+### Run From Source
 
 ```bash
 git clone https://github.com/vampokala/Doc-Ingestion
 cd Doc-Ingestion
-bash scripts/bootstrap_demo.sh   # creates venv, installs deps, ingests sample docs
+bash scripts/bootstrap_demo.sh
 ```
 
-The script pulls Ollama models automatically if Ollama is installed.
-To use a cloud provider instead, skip Ollama and set:
-
-```bash
-export OPENAI_API_KEY=...
-# or ANTHROPIC_API_KEY / GEMINI_API_KEY
-```
-
-Then start:
+The bootstrap script creates a virtual environment, installs dependencies, ingests sample documents, and pulls Ollama models when Ollama is installed.
 
 ```bash
 source .venv/bin/activate
@@ -73,80 +184,16 @@ source .venv/bin/activate
 # API server
 PYTHONPATH=. uvicorn src.api.main:app --reload --port 8000
 
-# Streamlit UI (second terminal)
+# Streamlit UI in a second terminal
 PYTHONPATH=. streamlit run src/web/streamlit_app.py
 
-# Or query from CLI
+# CLI query
 PYTHONPATH=. python -m src.query "What is RAG?"
 ```
 
-Note: non-demo local mode keeps the standard split architecture (Streamlit calls FastAPI over HTTP), so running both API and UI processes is still required.
+For a full local and Docker runbook, see [`Docs/RUNBOOK.md`](Docs/RUNBOOK.md).
 
----
-
-## Features
-
-- Multi-format ingestion (PDF, DOCX, TXT, MD, HTML)
-- Hybrid retrieval — BM25 + vector with weighted RRF fusion
-- Optional cross-encoder reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`)
-- Multi-provider LLM routing: Ollama (local), OpenAI, Anthropic, Gemini — switchable per request
-- Citation tracking and per-citation verification
-- **Inline truthfulness scoring** on every response (NLI faithfulness + citation groundedness)
-- **Offline eval harness** — RAGAS-style metrics over a golden dataset
-- FastAPI with auth, rate limiting (Redis or in-memory), streaming SSE
-- Streamlit UI with per-request provider/model switching and truthfulness badge
-
----
-
-## Architecture
-
-<details>
-<summary>System diagram</summary>
-
-```mermaid
-flowchart LR
-  userClient[UserClient] --> cliLayer[CLI]
-  userClient --> apiLayer[FastAPI]
-  userClient --> streamlitUi[StreamlitUI]
-  cliLayer --> orchestrator[RAGOrchestrator]
-  apiLayer --> orchestrator
-  streamlitUi --> orchestrator
-  orchestrator --> hybridRetriever[HybridRetriever]
-  hybridRetriever --> reranker[CrossEncoderReranker]
-  reranker --> contextOptimizer[ContextOptimizer]
-  contextOptimizer --> generator[RAGGenerator]
-  generator --> citationTracker[CitationTracker]
-  citationTracker --> citationVerifier[CitationVerifier]
-  citationVerifier --> truthfulness[TruthfulnessScorer]
-  generator --> llmRouter[LLMProviderRouter]
-  llmRouter --> ollamaProvider[Ollama]
-  llmRouter --> openaiProvider[OpenAI]
-  llmRouter --> anthropicProvider[Claude]
-  llmRouter --> geminiProvider[Gemini]
-  orchestrator --> bm25Store[BM25Index]
-  orchestrator --> vectorStore[ChromaOrQdrant]
-```
-</details>
-
-<details>
-<summary>Query flow</summary>
-
-```mermaid
-flowchart TD
-  q[UserQuery] --> retrieve[HybridRetrieve]
-  retrieve --> fuse[RRFWeightedFusion]
-  fuse --> rerank[RerankOptional]
-  rerank --> prompt[BuildPrompt]
-  prompt --> llm[ProviderModelSelectedPerRequest]
-  llm --> cite[ExtractAndVerifyCitations]
-  cite --> truth[TruthfulnessScore]
-  truth --> response[APIorCLIorUIResponse]
-```
-</details>
-
----
-
-## API usage
+## API Usage
 
 ```bash
 uvicorn src.api.main:app --reload --port 8000
@@ -159,7 +206,7 @@ curl -X POST http://127.0.0.1:8000/query \
   -d '{"query": "What is hybrid retrieval?", "provider": "ollama", "model": "qwen2.5:7b"}'
 ```
 
-Response includes a `truthfulness` block:
+Response includes answer text, citations, retrieved evidence, and a `truthfulness` block:
 
 ```json
 {
@@ -170,45 +217,34 @@ Response includes a `truthfulness` block:
     "uncited_claims": 1,
     "score": 0.89
   },
-  "citations": [...]
+  "citations": []
 }
 ```
 
 Endpoints: `GET /health`, `GET /metrics`, `POST /query`, `POST /query/stream` (SSE).
 
----
-
 ## Evaluation
 
-### Inline (every response)
-
-Every `/query` response includes a `truthfulness` object with:
+Every `/query` response can include a `truthfulness` object:
 
 | Field | What it measures |
-|-------|-----------------|
-| `nli_faithfulness` | Fraction of response sentences entailed by the retrieved chunks (NLI model) |
+|-------|------------------|
+| `nli_faithfulness` | Fraction of response sentences entailed by retrieved chunks |
 | `citation_groundedness` | Mean citation verification score |
-| `uncited_claims` | Count of sentences without a citation marker |
-| `score` | Weighted aggregate (60% NLI + 40% groundedness) |
+| `uncited_claims` | Count of answer sentences without citation markers |
+| `score` | Weighted aggregate of faithfulness and groundedness |
 
-The Streamlit UI renders a coloured badge: 🟢 ≥ 0.8 / 🟡 0.5–0.8 / 🔴 < 0.5.
-
-### Offline batch evaluation
-
-Run the RAGAS-style harness against the included golden dataset:
+Run the offline harness against the included datasets:
 
 ```bash
-# Install eval extras
 pip install -r requirements/eval.txt
 
-# Run against full dataset (needs a running LLM)
 PYTHONPATH=. python -m evals.run_evals \
-  --dataset evals/datasets/sample.jsonl \
-  --judge-provider ollama \
-  --judge-model qwen2.5:7b \
+  --dataset evals/datasets/golden.jsonl \
+  --judge-provider anthropic \
+  --judge-model claude-haiku-4-5 \
   --output evals/reports/
 
-# Smoke test (no LLM required — for CI / quick check)
 PYTHONPATH=. python -m evals.run_evals \
   --dataset evals/datasets/smoke.jsonl \
   --mock \
@@ -216,26 +252,30 @@ PYTHONPATH=. python -m evals.run_evals \
   --output evals/reports/
 ```
 
-Reports are written to `evals/reports/` as JSON + Markdown.
+Reports are written to `evals/reports/` as JSON and Markdown.
 
----
+## Project Map
 
-## Project map
+- [`src/core/`](src/core/) - retrieval, reranking, generation, citations, orchestration
+- [`src/api/`](src/api/) - FastAPI models and routes
+- [`src/web/`](src/web/) - Streamlit UI and ingestion service
+- [`src/evaluation/`](src/evaluation/) - truthfulness scorer, generation metrics, retrieval metrics
+- [`src/utils/`](src/utils/) - config, logging, and vector database integrations
+- [`evals/`](evals/) - offline eval harness, golden datasets, RAGAS adapter
+- [`data/sample/`](data/sample/) - preloaded sample documents for demos
+- [`spaces/`](spaces/) - Hugging Face Spaces deployment files
+- [`docker/`](docker/) - Docker Compose stack for API, Streamlit, Redis, and Qdrant
+- [`Docs/`](Docs/) - architecture notes, runbook, roadmap, phase documentation
 
-| Path | Purpose |
-|------|---------|
-| `src/core/` | Retrieval, reranking, generation, citations, orchestration |
-| `src/api/` | FastAPI models and routes |
-| `src/web/` | Streamlit UI and ingestion service |
-| `src/evaluation/` | Truthfulness scorer, generation and retrieval metrics |
-| `src/utils/` | Config and vector database integrations |
-| `evals/` | Offline eval harness, golden datasets, RAGAS adapter |
-| `data/sample/` | Pre-ingested sample documents for demos |
-| `spaces/` | Hugging Face Spaces deployment files |
-| `docker/` | Docker Compose stack (API + Streamlit + Redis + Qdrant) |
-| `Docs/` | Roadmap, runbook, and phase documentation |
+## Where To Go Deeper
 
----
+- [`Docs/PROJECT_OVERVIEW.md`](Docs/PROJECT_OVERVIEW.md) - system architecture and reader-friendly project overview
+- [`Docs/RUNBOOK.md`](Docs/RUNBOOK.md) - local setup, Docker setup, API keys, rate limiting, troubleshooting
+- [`Docs/phase2_hybrid_retrieval.md`](Docs/phase2_hybrid_retrieval.md) - hybrid retrieval and RRF design
+- [`Docs/phase3_reranking_generation.md`](Docs/phase3_reranking_generation.md) - reranking, generation, and context optimization
+- [`Docs/phase4_citation_api.md`](Docs/phase4_citation_api.md) - citation and API design
+- [`Docs/performance_baseline.md`](Docs/performance_baseline.md) - FastAPI overhead baseline
+- [`Docs/ROADMAP.md`](Docs/ROADMAP.md) - delivery status and planned improvements
 
 ## Development
 
@@ -250,9 +290,8 @@ Multi-provider API key environment variables:
 export OPENAI_API_KEY=...
 export ANTHROPIC_API_KEY=...
 export GEMINI_API_KEY=...
+export DOC_API_KEYS=dev-key-1
 ```
-
----
 
 ## Troubleshooting
 
@@ -260,12 +299,4 @@ export GEMINI_API_KEY=...
 - **Embedding model error:** Ensure Ollama is running and `nomic-embed-text` is pulled, or switch to a different embedding provider in `config.yaml`.
 - **Dimension mismatch after model change:** Re-ingest all documents to rebuild the vector index.
 - **Cloud provider fails:** Check the relevant `*_API_KEY` env var is set.
-- **Truthfulness score always 0:** The NLI model (`cross-encoder/nli-deberta-v3-small`) downloads on first use (~140 MB). Check internet access or set `evaluation.inline_enabled: false` in `config.yaml` to disable.
-
----
-
-## Documentation
-
-- [Production Runbook](Docs/RUNBOOK.md)
-- [Roadmap](Docs/ROADMAP.md)
-- [Project overview](Docs/PROJECT_OVERVIEW.md)
+- **Truthfulness score always 0:** The NLI model (`cross-encoder/nli-deberta-v3-small`) downloads on first use. Check internet access or set `evaluation.inline_enabled: false` in `config.yaml` to disable.

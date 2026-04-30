@@ -7,7 +7,7 @@ from src.core.document_processor import DocumentProcessor
 
 @pytest.fixture
 def processor():
-    return DocumentProcessor(chunk_size=100, overlap=20)
+    return DocumentProcessor(chunk_size=50, overlap=10)
 
 
 def _write_temp_file(content: str, suffix: str) -> str:
@@ -69,22 +69,23 @@ class TestChunkText:
         assert chunks[0] == "short text"
 
     def test_long_text_produces_multiple_chunks(self, processor):
-        text = "a" * 300
+        text = "token " * 300
         chunks = processor.chunk_text(text)
         assert len(chunks) > 1
 
     def test_chunk_size_respected(self, processor):
-        text = "x" * 250
+        text = "word " * 250
         chunks = processor.chunk_text(text)
-        assert all(len(c) <= processor.chunk_size for c in chunks)
+        assert all(processor.count_tokens(c) <= processor.chunk_size for c in chunks)
 
     def test_overlap_creates_shared_content(self):
-        proc = DocumentProcessor(chunk_size=50, overlap=10)
-        text = "a" * 100
+        proc = DocumentProcessor(chunk_size=20, overlap=5)
+        text = "alpha beta gamma delta epsilon " * 40
         chunks = proc.chunk_text(text)
-        # With overlap, step = 40, so chunks[1] should start at index 40
-        # meaning the last 10 chars of chunk[0] equal the first 10 of the overlap region
-        assert len(chunks) >= 3
+        assert len(chunks) >= 2
+        first_tokens = proc._tokenizer.encode(chunks[0])
+        second_tokens = proc._tokenizer.encode(chunks[1])
+        assert first_tokens[-proc.overlap:] == second_tokens[:proc.overlap]
 
     def test_no_empty_chunks(self, processor):
         chunks = processor.chunk_text("hello world " * 20)

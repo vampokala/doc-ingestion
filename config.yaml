@@ -1,6 +1,7 @@
 # Document processing
-chunk_size: 1000
-overlap: 200
+chunk_size: 600
+overlap: 100
+chunk_tokenizer: gpt2
 
 # File paths
 data_dir: data/documents
