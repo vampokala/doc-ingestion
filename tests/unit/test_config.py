@@ -16,8 +16,9 @@ def _write_config(data: dict) -> str:
 class TestConfigDefaults:
     def test_default_values(self):
         cfg = Config()
-        assert cfg.chunk_size == 1000
-        assert cfg.overlap == 200
+        assert cfg.chunk_size == 600
+        assert cfg.overlap == 100
+        assert cfg.chunk_tokenizer == "gpt2"
         assert cfg.log_level == "INFO"
 
     def test_custom_values(self):
@@ -45,7 +46,7 @@ class TestLoadConfig:
         path = _write_config({"chunk_size": 256})
         try:
             cfg = load_config(path)
-            assert cfg.overlap == 200  # default
+            assert cfg.overlap == 100  # default
         finally:
             os.unlink(path)
 
@@ -53,7 +54,7 @@ class TestLoadConfig:
         path = _write_config({})
         try:
             cfg = load_config(path)
-            assert cfg.chunk_size == 1000
+            assert cfg.chunk_size == 600
         finally:
             os.unlink(path)
 

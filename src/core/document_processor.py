@@ -12,14 +12,40 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import PyPDF2
+import tiktoken
 from bs4 import BeautifulSoup
 from docx import Document
 
 
+class _RegexTokenizer:
+    """Offline fallback tokenizer when tiktoken encoding cannot be loaded."""
+
+    _token_pattern = re.compile(r"\w+|[^\w\s]", re.UNICODE)
+
+    def encode(self, text: str) -> List[str]:
+        return self._token_pattern.findall(text)
+
+    def decode(self, token_ids: List[str]) -> str:
+        if not token_ids:
+            return ""
+        return " ".join(token_ids)
+
+
 class DocumentProcessor:
-    def __init__(self, chunk_size: int = 1000, overlap: int = 200):
+    def __init__(self, chunk_size: int = 600, overlap: int = 100, tokenizer_name: str = "gpt2"):
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be > 0")
+        if overlap < 0:
+            raise ValueError("overlap must be >= 0")
+        if overlap >= chunk_size:
+            raise ValueError("overlap must be smaller than chunk_size")
         self.chunk_size = chunk_size
         self.overlap = overlap
+        self.tokenizer_name = tokenizer_name
+        try:
+            self._tokenizer = tiktoken.get_encoding(tokenizer_name)
+        except Exception:
+            self._tokenizer = _RegexTokenizer()
         self._seen_hashes: set = set()
 
     def process_document(self, file_path: str) -> Optional[Dict]:
@@ -76,16 +102,23 @@ class DocumentProcessor:
         return text.strip()
 
     def chunk_text(self, text: str) -> List[str]:
-        chunks = []
+        token_ids = self._tokenizer.encode(text)
+        if not token_ids:
+            return []
+
+        chunks: List[str] = []
         step = self.chunk_size - self.overlap
         start = 0
-        while start < len(text):
-            end = min(start + self.chunk_size, len(text))
-            chunk = text[start:end]
-            if chunk:
+        while start < len(token_ids):
+            end = min(start + self.chunk_size, len(token_ids))
+            chunk = self._tokenizer.decode(token_ids[start:end])
+            if chunk.strip():
                 chunks.append(chunk)
             start += step
         return chunks
+
+    def count_tokens(self, text: str) -> int:
+        return len(self._tokenizer.encode(text))
 
     # --- private extractors ---
 
