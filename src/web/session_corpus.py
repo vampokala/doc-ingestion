@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import threading
 import time
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4

@@ -3,13 +3,11 @@ Observability layer for RAG pipeline instrumentation.
 Provides decorators and context managers for LangFuse tracing.
 """
 
+import logging
 import os
 import time
-import json
-from functools import wraps
-from typing import Any, Callable, Dict, Optional, List
 from contextlib import contextmanager
-import logging
+from typing import Any, Dict, Optional
 
 try:
     from langfuse import Langfuse

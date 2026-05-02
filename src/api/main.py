@@ -7,10 +7,11 @@ import json
 import logging
 import os
 import time
-from pathlib import Path
+import uuid
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Deque, Dict, Iterator, cast
 
 from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
@@ -31,9 +32,8 @@ from src.api.models import (
 )
 from src.core.observability import get_observer
 from src.core.rag_orchestrator import COLLECTION_NAME, QueryRequest, QueryResponse, RAGOrchestrator
-from src.monitoring.metrics import get_metrics_collector, RequestMetrics
+from src.monitoring.metrics import RequestMetrics, get_metrics_collector
 from src.utils.config import load_config
-import uuid
 from src.web import session_corpus
 from src.web.ingestion_service import (
     MAX_FILE_BYTES,
@@ -257,7 +257,9 @@ def _session_summary(session: session_corpus.SessionCorpus) -> dict[str, Any]:
         if p.is_file():
             files.append({"name": p.name, "size_bytes": p.stat().st_size})
     touched_path = session.upload_dir.parent / ".touched"
-    expires_at = int((touched_path.stat().st_mtime if touched_path.exists() else time.time()) + session_corpus._session_ttl_seconds())
+    mtime = touched_path.stat().st_mtime if touched_path.exists() else time.time()
+    ttl = session_corpus._session_ttl_seconds()
+    expires_at = int(mtime + ttl)
     return {
         "session_id": session.session_id,
         "files": files,

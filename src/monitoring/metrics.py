@@ -3,14 +3,12 @@ Metrics collection and aggregation for RAG pipeline.
 Tracks latency percentiles, cost, retrieval precision, citation accuracy.
 """
 
-import json
-import time
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, asdict, field
-from collections import deque
-import threading
-from datetime import datetime, timedelta
 import logging
+import threading
+from collections import deque
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 

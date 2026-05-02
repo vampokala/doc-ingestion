@@ -413,7 +413,8 @@ def _render_ingest_tab() -> None:
             data = resp.json()
             for item in data.get("results", []):
                 st.write(f"- {item.get('filename')}: {item.get('status')} ({item.get('message')})")
-            summary = {"processed_files": len([r for r in data.get("results", []) if r.get("status") == "queued"]), "status": "ok"}
+            queued = [r for r in data.get("results", []) if r.get("status") == "queued"]
+            summary = {"processed_files": len(queued), "status": "ok"}
         else:
             staged = save_uploaded_files(UPLOAD_DIR, uploads)
             for item in staged:

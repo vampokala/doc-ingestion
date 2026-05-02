@@ -104,10 +104,6 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       queryClient,
       sessionId,
       sessionQuery,
-      sessionQuery.data,
-      sessionQuery.error,
-      sessionQuery.isFetching,
-      sessionQuery.isPending,
       setSession,
     ],
   )

@@ -1,7 +1,7 @@
 """Unit tests for metrics collector."""
 
-import pytest
 from datetime import datetime
+
 from src.monitoring.metrics import MetricsCollector, RequestMetrics, init_metrics_collector
 
 

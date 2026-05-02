@@ -1,7 +1,6 @@
 """Unit tests for observability module."""
 
-import pytest
-from src.core.observability import RAGObserver, init_observer, get_observer
+from src.core.observability import RAGObserver, get_observer, init_observer
 
 
 def test_observer_disabled_noop_on_trace_request():

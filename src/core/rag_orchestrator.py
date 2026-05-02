@@ -64,7 +64,8 @@ class QueryResponse:
     cached: bool = False
     validation_issues: List[str] = field(default_factory=list)
     truthfulness: Optional[TruthfulnessResult] = None
-    step_latencies: Dict[str, float] = field(default_factory=dict)  # latencies per step (retrieval, reranking, generation, etc.)
+    # Per-step latencies (retrieval, reranking, generation, etc.)
+    step_latencies: Dict[str, float] = field(default_factory=dict)
 
 
 class RAGOrchestrator:
@@ -329,7 +330,10 @@ class RAGOrchestrator:
                 truthfulness: Optional[TruthfulnessResult] = None
                 scorer = self._get_truthfulness_scorer()
                 if scorer is not None and gen_result.response_text.strip():
-                    ctx = gen_result.optimized_context or self.context_optimizer.optimize_context(req.query_text, docs_for_gen)
+                    ctx = gen_result.optimized_context or self.context_optimizer.optimize_context(
+                        req.query_text,
+                        docs_for_gen,
+                    )
                     source_texts = [str(d.get("text", "")) for d in ctx.documents if d.get("text")]
                     try:
                         truthfulness = scorer.score(

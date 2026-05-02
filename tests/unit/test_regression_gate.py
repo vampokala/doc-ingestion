@@ -1,10 +1,7 @@
 """Unit tests for regression gate script."""
 
-import json
-import tempfile
-import pytest
-import sys
 import os
+import sys
 
 # Add scripts to path for import
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../scripts"))

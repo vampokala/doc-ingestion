@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { AnswerPanel } from '../components/AnswerPanel'
 import { CitationsList } from '../components/CitationsList'
@@ -71,32 +71,38 @@ export function QueryTab() {
     staleTime: Infinity,
   })
 
-  const [provider, setProvider] = useState('')
-  const [model, setModel] = useState('')
-  const [providerApiKey, setProviderApiKey] = useState('')
-  const [rememberProviderKey, setRememberProviderKey] = useState(true)
+  const [providerChoice, setProviderChoice] = useState<string | null>(null)
+  const [modelChoice, setModelChoice] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!llmConfig || provider) {
-      return
-    }
-    const p = pickDefaultProvider(llmConfig)
-    setProvider(p)
-    setModel(pickDefaultModel(llmConfig, p))
-  }, [llmConfig, provider])
+  const defaultProvider = llmConfig ? pickDefaultProvider(llmConfig) : ''
+  const provider = providerChoice ?? defaultProvider
+  const model =
+    modelChoice !== null
+      ? modelChoice
+      : llmConfig && provider
+        ? pickDefaultModel(llmConfig, provider)
+        : ''
 
-  useEffect(() => {
+  const baselineApiKey = useMemo(() => {
     if (!provider || provider === 'ollama') {
-      setProviderApiKey('')
-      return
+      return ''
     }
-    setProviderApiKey(localStorage.getItem(`${PROVIDER_KEY_PREFIX}${provider}`) ?? '')
+    return localStorage.getItem(`${PROVIDER_KEY_PREFIX}${provider}`) ?? ''
   }, [provider])
 
+  const [prevProvider, setPrevProvider] = useState(provider)
+  const [providerApiKeyDraft, setProviderApiKeyDraft] = useState<string | null>(null)
+  if (provider !== prevProvider) {
+    setPrevProvider(provider)
+    setProviderApiKeyDraft(null)
+  }
+  const providerApiKey = providerApiKeyDraft ?? baselineApiKey
+  const [rememberProviderKey, setRememberProviderKey] = useState(true)
+
   const handleProviderChange = (next: string) => {
-    setProvider(next)
+    setProviderChoice(next)
     if (llmConfig) {
-      setModel(pickDefaultModel(llmConfig, next))
+      setModelChoice(pickDefaultModel(llmConfig, next))
     }
   }
 
@@ -227,7 +233,7 @@ export function QueryTab() {
               <select
                 className="w-full rounded-xl border border-slate-300 bg-white p-3 text-slate-900 shadow-sm"
                 value={model}
-                onChange={(e) => setModel(e.target.value)}
+                onChange={(e) => setModelChoice(e.target.value)}
                 disabled={modelOptions.length === 0}
               >
                 {modelOptions.map((m) => (
@@ -256,7 +262,7 @@ export function QueryTab() {
                 className="w-full rounded-xl border border-slate-300 bg-white p-3 text-slate-900 shadow-sm"
                 placeholder="sk-… or session key (sent only with this request)"
                 value={providerApiKey}
-                onChange={(e) => setProviderApiKey(e.target.value)}
+                onChange={(e) => setProviderApiKeyDraft(e.target.value)}
               />
             </label>
             <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
