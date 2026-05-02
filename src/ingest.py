@@ -34,7 +34,14 @@ def collect_files(path: str) -> list[str]:
     return sorted(files)
 
 
-def ingest(docs_path: str) -> tuple[BM25Index, VectorDatabase]:
+def ingest(
+    docs_path: str,
+    *,
+    bm25_index_path: str = BM25_INDEX_PATH,
+    collection_name: str = COLLECTION_NAME,
+    chroma_path: str = "data/embeddings/chroma",
+    processor: DocumentProcessor | None = None,
+) -> tuple[BM25Index, VectorDatabase]:
     # ── 1. Config ────────────────────────────────────────────────────────────
     cfg = load_config("config.yaml")
     logger.info(
@@ -45,14 +52,14 @@ def ingest(docs_path: str) -> tuple[BM25Index, VectorDatabase]:
     )
 
     # ── 2. Components ─────────────────────────────────────────────────────────
-    processor = DocumentProcessor(
+    processor = processor or DocumentProcessor(
         chunk_size=cfg.chunk_size,
         overlap=cfg.overlap,
         tokenizer_name=cfg.chunk_tokenizer,
     )
     index = BM25Index()
-    db = VectorDatabase(mode="dev", chroma_path="data/embeddings/chroma")
-    db.create_collection(COLLECTION_NAME)
+    db = VectorDatabase(mode="dev", chroma_path=chroma_path)
+    db.create_collection(collection_name)
 
     # ── 3. Process files ──────────────────────────────────────────────────────
     files = collect_files(docs_path)
@@ -88,14 +95,14 @@ def ingest(docs_path: str) -> tuple[BM25Index, VectorDatabase]:
             for i, chunk in enumerate(chunks)
         ]
         with track_duration("vector_indexing", logger):
-            db.add_documents(COLLECTION_NAME, vector_docs)
+            db.add_documents(collection_name, vector_docs)
 
         total_chunks += len(chunks)
         logger.info("Indexed %d chunks from %s", len(chunks), os.path.basename(file_path))
 
     # ── 4. Persist BM25 index ─────────────────────────────────────────────────
-    os.makedirs(os.path.dirname(BM25_INDEX_PATH), exist_ok=True)
-    index.save(BM25_INDEX_PATH)
+    os.makedirs(os.path.dirname(bm25_index_path), exist_ok=True)
+    index.save(bm25_index_path)
 
     # ── 5. Summary ────────────────────────────────────────────────────────────
     print("\n" + "=" * 60)
@@ -104,8 +111,8 @@ def ingest(docs_path: str) -> tuple[BM25Index, VectorDatabase]:
     print(f"  Files processed  : {len(files) - skipped}")
     print(f"  Files skipped    : {skipped} (duplicates)")
     print(f"  Total chunks     : {total_chunks}")
-    print(f"  BM25 index saved : {BM25_INDEX_PATH}")
-    print(f"  Vector DB        : data/embeddings/chroma  (collection={COLLECTION_NAME!r})")
+    print(f"  BM25 index saved : {bm25_index_path}")
+    print(f"  Vector DB        : {chroma_path}  (collection={collection_name!r})")
 
     perf = metrics.summary()
     if perf:

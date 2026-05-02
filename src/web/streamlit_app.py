@@ -18,6 +18,7 @@ DEFAULT_UI_GATEWAY_KEY = os.getenv("DOC_API_KEY_DEFAULT", "ev-key-1")
 
 # When DOC_PROFILE=demo the UI disables uploads and shows a banner.
 _DEMO_MODE = os.getenv("DOC_PROFILE", "").strip().lower() == "demo"
+_DEMO_UPLOADS_ENABLED = os.getenv("DOC_DEMO_UPLOADS", "0").strip() == "1"
 
 _DEMO_QUESTIONS = [
     "What is Retrieval-Augmented Generation?",
@@ -101,6 +102,24 @@ def _run_query_via_api(payload: dict, headers: dict) -> dict:
     resp = requests.post(f"{API_BASE_URL}/query", json=payload, headers=headers, timeout=120)
     resp.raise_for_status()
     return resp.json()
+
+
+def _get_or_create_demo_session(headers: dict) -> str:
+    existing = str(st.session_state.get("demo_session_id", "")).strip()
+    if existing:
+        try:
+            probe = requests.get(f"{API_BASE_URL}/sessions/{existing}", headers=headers, timeout=15)
+            if probe.ok:
+                return existing
+        except Exception:
+            pass
+    resp = requests.post(f"{API_BASE_URL}/sessions", headers=headers, timeout=20)
+    resp.raise_for_status()
+    data = resp.json()
+    sid = str(data.get("session_id", "")).strip()
+    if sid:
+        st.session_state["demo_session_id"] = sid
+    return sid
 
 
 def _truthfulness_badge(score: float) -> str:
@@ -281,9 +300,12 @@ def _render_query_tab() -> None:
             headers["X-API-Key"] = resolved_api_key
         with st.spinner("Running retrieval and generation..."):
             try:
-                if _DEMO_MODE:
+                if _DEMO_MODE and not _DEMO_UPLOADS_ENABLED:
                     data = _run_query_in_demo_mode(payload)
                 else:
+                    if _DEMO_MODE and _DEMO_UPLOADS_ENABLED:
+                        sid = _get_or_create_demo_session(headers)
+                        payload["session_id"] = sid
                     data = _run_query_via_api(payload, headers)
             except requests.HTTPError as exc:
                 msg = "Request failed."
@@ -341,7 +363,7 @@ def _render_query_tab() -> None:
 
 def _render_ingest_tab() -> None:
     st.subheader("Ingest new documents")
-    if _DEMO_MODE:
+    if _DEMO_MODE and not _DEMO_UPLOADS_ENABLED:
         st.info(
             "**Hosted demo** — uploads are disabled to prevent abuse. "
             "Sample documents (RAG, vector databases, BM25) are pre-loaded and ready to query. "
@@ -364,11 +386,40 @@ def _render_ingest_tab() -> None:
         if not uploads:
             st.warning("Select one or more files before ingesting.")
             return
-        staged = save_uploaded_files(UPLOAD_DIR, uploads)
-        for item in staged:
-            st.write(f"- {item.filename}: {item.status} ({item.message})")
-        with st.spinner("Running ingestion pipeline..."):
-            summary = run_ingest(UPLOAD_DIR)
+        cfg = load_config("config.yaml")
+        auth_required = bool(getattr(cfg, "api", None) and cfg.api.auth_enabled)
+        default_gateway_key = _gateway_default_from_config(cfg)
+        resolved_api_key = _api_key_from_session_or_env(default_gateway_key)
+        headers = {}
+        if auth_required and resolved_api_key:
+            headers["X-API-Key"] = resolved_api_key
+
+        if _DEMO_MODE and _DEMO_UPLOADS_ENABLED:
+            sid = _get_or_create_demo_session(headers)
+            files_payload = [
+                ("files", (u.name, u.getvalue(), "application/octet-stream"))
+                for u in uploads
+            ]
+            with st.spinner("Uploading and indexing session documents..."):
+                resp = requests.post(
+                    f"{API_BASE_URL}/sessions/{sid}/documents",
+                    files=files_payload,
+                    headers=headers,
+                    timeout=180,
+                )
+            if not resp.ok:
+                st.error(f"Upload failed: {resp.status_code} {resp.text}")
+                return
+            data = resp.json()
+            for item in data.get("results", []):
+                st.write(f"- {item.get('filename')}: {item.get('status')} ({item.get('message')})")
+            summary = {"processed_files": len([r for r in data.get("results", []) if r.get("status") == "queued"]), "status": "ok"}
+        else:
+            staged = save_uploaded_files(UPLOAD_DIR, uploads)
+            for item in staged:
+                st.write(f"- {item.filename}: {item.status} ({item.message})")
+            with st.spinner("Running ingestion pipeline..."):
+                summary = run_ingest(UPLOAD_DIR)
         st.success(f"Ingestion complete: {summary}")
 
 

@@ -18,6 +18,52 @@ def _env_or(env_name: str, default: str) -> str:
     return trimmed or default
 
 
+def _truthy_env_string(value: str) -> bool:
+    v = value.strip().lower()
+    if v in ("1", "true", "yes", "on"):
+        return True
+    if v in ("0", "false", "no", "off"):
+        return False
+    return True
+
+
+def doc_ollama_runtime_enabled() -> bool:
+    """Whether the Ollama LLM provider should appear in config and /config/llm.
+
+    Ollama targets a local daemon and is unavailable on hosted Hugging Face Spaces.
+
+    - If ``DOC_OLLAMA_ENABLED`` is set to a non-empty string, it wins (true/false
+      semantics via ``_truthy_env_string``).
+    - Otherwise, Ollama is disabled when ``SPACE_ID`` is set (HF Spaces injects this).
+    - Otherwise Ollama stays enabled (local installs, CI, generic Docker).
+    """
+    raw = os.getenv("DOC_OLLAMA_ENABLED")
+    if raw is not None and raw.strip() != "":
+        return _truthy_env_string(raw)
+    if os.getenv("SPACE_ID", "").strip():
+        return False
+    return True
+
+
+def _strip_ollama_llm_settings(cfg: Config) -> Config:
+    llm = cfg.llm
+    new_allowed = {k: v for k, v in llm.allowed_models_by_provider.items() if k != "ollama"}
+    new_defaults = {k: v for k, v in llm.default_model_by_provider.items() if k != "ollama"}
+    if not new_allowed:
+        return cfg
+    new_default = llm.default_provider
+    if new_default == "ollama" or new_default not in new_allowed:
+        new_default = next(iter(new_allowed.keys()))
+    new_llm = llm.model_copy(
+        update={
+            "allowed_models_by_provider": new_allowed,
+            "default_model_by_provider": new_defaults,
+            "default_provider": new_default,
+        }
+    )
+    return cfg.model_copy(update={"llm": new_llm})
+
+
 def _default_ollama_base_url() -> str:
     # OLLAMA_HOST is used by some Ollama setups; keep it as a fallback.
     return _env_or("OLLAMA_BASE_URL", _env_or("OLLAMA_HOST", "http://localhost:11434"))
@@ -185,6 +231,9 @@ def load_config(config_path: str = "config.yaml", env: str | None = None) -> Con
                 config_data[field_name] = annotation(env_value)
 
     try:
-        return Config(**config_data)
+        cfg = Config(**config_data)
     except ValidationError as e:
         raise ValueError(f"Invalid configuration: {e}")
+    if not doc_ollama_runtime_enabled():
+        cfg = _strip_ollama_llm_settings(cfg)
+    return cfg

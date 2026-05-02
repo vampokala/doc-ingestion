@@ -20,6 +20,16 @@ def test_metrics_endpoint():
     assert "available_providers" in res.json()
 
 
+def test_llm_config_endpoint():
+    client = TestClient(app)
+    res = client.get("/config/llm")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["default_provider"]
+    assert "ollama" in data["allowed_models_by_provider"]
+    assert isinstance(data["allowed_models_by_provider"]["ollama"], list)
+
+
 def test_query_endpoint(monkeypatch):
     def _fake_run(_req):
         return QueryResponse(

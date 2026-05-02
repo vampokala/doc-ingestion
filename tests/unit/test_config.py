@@ -3,7 +3,7 @@ import tempfile
 
 import pytest
 import yaml
-from src.utils.config import Config, load_config, provider_api_key_env
+from src.utils.config import Config, doc_ollama_runtime_enabled, load_config, provider_api_key_env
 
 
 def _write_config(data: dict) -> str:
@@ -101,3 +101,31 @@ def test_provider_api_key_env():
     assert provider_api_key_env("anthropic") == "ANTHROPIC_API_KEY"
     assert provider_api_key_env("gemini") == "GEMINI_API_KEY"
     assert provider_api_key_env("ollama") is None
+
+
+class TestDocOllamaRuntimeToggle:
+    def test_explicit_disable(self, monkeypatch):
+        monkeypatch.setenv("DOC_OLLAMA_ENABLED", "0")
+        monkeypatch.delenv("SPACE_ID", raising=False)
+        assert doc_ollama_runtime_enabled() is False
+
+    def test_explicit_enable_overrides_space_id(self, monkeypatch):
+        monkeypatch.setenv("DOC_OLLAMA_ENABLED", "1")
+        monkeypatch.setenv("SPACE_ID", "user/demo")
+        assert doc_ollama_runtime_enabled() is True
+
+    def test_space_id_disables_when_unset(self, monkeypatch):
+        monkeypatch.delenv("DOC_OLLAMA_ENABLED", raising=False)
+        monkeypatch.setenv("SPACE_ID", "user/demo")
+        assert doc_ollama_runtime_enabled() is False
+
+    def test_load_config_strips_ollama_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("DOC_OLLAMA_ENABLED", "false")
+        path = _write_config({})
+        try:
+            cfg = load_config(path)
+            assert "ollama" not in cfg.llm.allowed_models_by_provider
+            assert cfg.llm.default_provider != "ollama"
+            assert cfg.llm.default_provider in cfg.llm.allowed_models_by_provider
+        finally:
+            os.unlink(path)

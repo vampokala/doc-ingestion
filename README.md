@@ -3,16 +3,15 @@ title: Doc Ingestion RAG Demo
 emoji: 📚
 colorFrom: blue
 colorTo: indigo
-sdk: streamlit
-sdk_version: "1.37.0"
-app_file: spaces/app.py
+sdk: docker
+app_port: 8000
 pinned: false
 license: mit
 ---
 
 # Doc-Ingestion
 
-Doc-Ingestion is a citation-aware RAG system that turns private document collections into grounded question-answering experiences. It demonstrates how to ingest documents, retrieve the right evidence, generate answers from that evidence, and return citations plus truthfulness signals through a Streamlit app, FastAPI service, and CLI.
+Doc-Ingestion is a citation-aware RAG system that turns private document collections into grounded question-answering experiences. It demonstrates how to ingest documents, retrieve the right evidence, generate answers from that evidence, and return citations plus truthfulness signals through a React UI (served by FastAPI), standalone FastAPI, optional Streamlit legacy UI, and CLI.
 
 > **[Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/vampokala/doc-ingestion)** - no install required.
 
@@ -154,7 +153,7 @@ In hosted demo mode (`DOC_PROFILE=demo`), Streamlit executes queries in-process 
 
 ### Try Online
 
-Open the [Hugging Face Spaces demo](https://huggingface.co/spaces/vampokala/doc-ingestion). Sample documents about RAG, vector databases, and BM25 are preloaded. Paste your OpenAI, Anthropic, or Gemini key in the sidebar if you want to use a cloud provider.
+Open the [Hugging Face Spaces demo](https://huggingface.co/spaces/vampokala/doc-ingestion). Sample documents about RAG, vector databases, and BM25 are preloaded. Paste your OpenAI, Anthropic, or Gemini key in the app if you want to use a cloud provider.
 
 ### Run Locally With Docker
 
@@ -166,7 +165,7 @@ cp docker/.env.example docker/.env
 docker compose -f docker/docker-compose.yml up
 ```
 
-Open `http://localhost:8501` for Streamlit or `http://localhost:8000` for the API.
+Open `http://localhost:8000` for the React UI and API (single container image).
 
 ### Run From Source
 
@@ -192,6 +191,28 @@ PYTHONPATH=. python -m src.query "What is RAG?"
 ```
 
 For a full local and Docker runbook, see [`Docs/RUNBOOK.md`](Docs/RUNBOOK.md).
+
+## Ollama and Hugging Face Spaces
+
+**`SPACE_ID` is not a file in this repository.** It is a **runtime environment variable** that [Hugging Face Spaces](https://huggingface.co/docs/hub/spaces-overview) sets inside the Space container (for example `your-username/your-space-name`). Doc-Ingestion reads it from the process environment in [`src/utils/config.py`](src/utils/config.py) when `load_config("config.yaml")` runs. Static LLM provider and model lists still live in [`config.yaml`](config.yaml); Ollama is only removed from the **effective** config when Space detection says it should be.
+
+If you **clone this repo and run it locally** (source or Docker on your machine), **Hugging Face does not set `SPACE_ID`**. The Ollama provider therefore stays in the default LLM list from `config.yaml`, and you can use it after starting the [Ollama](https://ollama.com) daemon and pulling the chat and embedding models described in [`Docs/RUNBOOK.md`](Docs/RUNBOOK.md).
+
+On **Hugging Face Spaces**, the platform **injects `SPACE_ID`** (for example `your-username/your-space-name`). Doc-Ingestion reads that at startup and **removes Ollama** from allowed providers and from `GET /config/llm`, because there is no local Ollama service in the hosted container. Hosted demos use OpenAI, Anthropic, or Gemini with keys you supply in the UI or environment.
+
+| Where you run | `SPACE_ID` | Ollama in the app |
+|---------------|------------|-------------------|
+| Your laptop or your own server / Docker | Not set by default | Yes (per `config.yaml`) |
+| Hugging Face Space | Set automatically by HF | No (automatic) |
+
+**Do not define `SPACE_ID` yourself** for local deployment. It exists so the app can tell it is running inside a Space. If you copied Space-style environment variables into a local `.env` and Ollama disappeared from the UI, remove `SPACE_ID` or set **`DOC_OLLAMA_ENABLED=1`** to force Ollama back on.
+
+**Explicit override (optional):**
+
+- `DOC_OLLAMA_ENABLED=0` — hide Ollama even when `SPACE_ID` is unset (useful if you want cloud-only in your own container).
+- `DOC_OLLAMA_ENABLED=1` — show Ollama even when `SPACE_ID` is set (rare; only if you had a sidecar Ollama and extended the image yourself).
+
+Implementation: [`src/utils/config.py`](src/utils/config.py) (`doc_ollama_runtime_enabled`, applied inside `load_config`).
 
 ## API Usage
 
@@ -293,6 +314,11 @@ export GEMINI_API_KEY=...
 export DOC_API_KEYS=dev-key-1
 ```
 
+Deployment-related environment variables (not stored in `config.yaml`; see [Ollama and Hugging Face Spaces](#ollama-and-hugging-face-spaces) above):
+
+- **`SPACE_ID`** — injected on Hugging Face Spaces only. You do not add this to a local config file for normal development.
+- **`DOC_OLLAMA_ENABLED`** — optional explicit override: `0` / `false` to hide Ollama, `1` / `true` to show it even when `SPACE_ID` is set.
+
 ## Troubleshooting
 
 - **Empty results after ingest:** Run `python -m src.ingest --docs data/documents` and verify `data/embeddings/` exists.
@@ -300,3 +326,4 @@ export DOC_API_KEYS=dev-key-1
 - **Dimension mismatch after model change:** Re-ingest all documents to rebuild the vector index.
 - **Cloud provider fails:** Check the relevant `*_API_KEY` env var is set.
 - **Truthfulness score always 0:** The NLI model (`cross-encoder/nli-deberta-v3-small`) downloads on first use. Check internet access or set `evaluation.inline_enabled: false` in `config.yaml` to disable.
+- **Ollama missing from the UI or `/config/llm` locally:** You may have `SPACE_ID` or `DOC_OLLAMA_ENABLED=0` in your shell or `docker/.env`. Unset `SPACE_ID` for local runs, or set `DOC_OLLAMA_ENABLED=1`. There is no separate `SPACE_ID` configuration file in the repo—only environment variables and [`config.yaml`](config.yaml).

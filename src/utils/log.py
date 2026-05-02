@@ -1,6 +1,6 @@
 '''
 - Structured logging with JSON format
-- Performance metrics collection
+- Performance metrics collection (delegates to src.monitoring.metrics)
 - Error tracking and alerting
 - Request/response logging
 '''
@@ -9,6 +9,8 @@ import json
 import logging
 import time
 from typing import Any, Dict, Iterator, Optional
+
+from src.monitoring.metrics import get_metrics_collector
 
 
 class JSONFormatter(logging.Formatter):
@@ -37,10 +39,14 @@ def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
 
 
 class MetricsCollector:
-    """Accumulates performance metrics in memory."""
+    """
+    Deprecated: use src.monitoring.metrics.MetricsCollector instead.
+    This class now delegates to the new metrics collector for backward compatibility.
+    """
 
     def __init__(self) -> None:
         self._metrics: Dict[str, list] = {}
+        self._new_collector = get_metrics_collector()
 
     def record(self, name: str, value: float) -> None:
         self._metrics.setdefault(name, []).append(value)
