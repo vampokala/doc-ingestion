@@ -98,8 +98,6 @@ class RAGOrchestrator:
         Optional[tuple[BM25Index, VectorDatabase]],
         str,
     ]:
-        index = BM25Index.load(BM25_INDEX_PATH)
-        db = VectorDatabase(mode="dev", chroma_path=CHROMA_PATH)
         qp = QueryProcessor()
         requested_scope = (req.knowledge_scope or "global").strip().lower()
         session_pair: Optional[tuple[BM25Index, VectorDatabase]] = None
@@ -117,6 +115,28 @@ class RAGOrchestrator:
                     effective_scope = "global"
             else:
                 effective_scope = "global"
+
+        # Session-only: never touch the global corpus (HF Spaces upload-only demos).
+        if effective_scope == "session" and session_pair is not None:
+            placeholder_db = VectorDatabase(mode="dev", chroma_path=CHROMA_PATH)
+            return BM25Index(), placeholder_db, qp, session_pair, effective_scope
+
+        # Both: if the global BM25 file is absent, fall back to session-only rather than failing.
+        if (
+            effective_scope == "both"
+            and session_pair is not None
+            and not os.path.isfile(BM25_INDEX_PATH)
+        ):
+            logger.warning(
+                "Global BM25 index missing at %s; using session corpus only (knowledge_scope=both)",
+                BM25_INDEX_PATH,
+            )
+            effective_scope = "session"
+            placeholder_db = VectorDatabase(mode="dev", chroma_path=CHROMA_PATH)
+            return BM25Index(), placeholder_db, qp, session_pair, effective_scope
+
+        index = BM25Index.load(BM25_INDEX_PATH)
+        db = VectorDatabase(mode="dev", chroma_path=CHROMA_PATH)
         return index, db, qp, session_pair, effective_scope
 
     def _retrieve(
