@@ -3,9 +3,8 @@ title: Doc Ingestion RAG Demo
 emoji: 📚
 colorFrom: blue
 colorTo: indigo
-sdk: streamlit
-sdk_version: "1.37.0"
-app_file: spaces/app.py
+sdk: docker
+app_port: 8000
 pinned: false
 license: mit
 short_description: Citation-aware RAG with hybrid retrieval and truthfulness scoring
@@ -15,19 +14,25 @@ short_description: Citation-aware RAG with hybrid retrieval and truthfulness sco
 
 A live demo of **Doc-Ingestion**, a citation-aware Retrieval-Augmented Generation system.
 
+The Space runs **one container**: **FastAPI** on port **8000** serves both the **React** UI (static files) and the JSON/streaming API on the same origin.
+
 ## What you can do here
 
 - Ask questions about **RAG**, **vector databases**, and **BM25 retrieval** — sample documents are pre-loaded.
 - See **citations** pointing to the specific chunks that grounded each answer.
 - See a **truthfulness score** (NLI faithfulness + citation groundedness) for every response.
-- Choose between **OpenAI**, **Anthropic**, or **Gemini** providers using your own key (paste it in the sidebar).
+- Choose between **OpenAI**, **Anthropic**, or **Gemini** providers using your own key (paste it in the UI).
 
 ## Limitations of this demo
 
-- **Uploads are disabled** — this demo runs on pre-ingested sample documents only.
-- **No persistence** — embeddings are stored in-memory and reset on each Space restart.
-- **Cloud LLM only** — Ollama (local model) is not available in this hosted environment.
-- **Demo query path** — Streamlit runs demo queries in-process via `RAGOrchestrator`; FastAPI is still started for health/metrics and API compatibility.
+- **No persistence across restarts** — state is ephemeral unless you attach HF storage / external backends.
+- **Cloud LLM on this Space** — Hugging Face sets **`SPACE_ID`** in the container. The app uses that to **omit Ollama** from the provider list (there is no local Ollama daemon here). If you **clone the repo and run locally**, `SPACE_ID` is normally unset, so **Ollama stays available** per `config.yaml`. Details and overrides (`DOC_OLLAMA_ENABLED`) are in the main [README — Ollama and Hugging Face Spaces](../README.md#ollama-and-hugging-face-spaces).
+
+## Dockerfile
+
+Uses the repository root **`Dockerfile`**, which builds the React app and serves it from FastAPI.
+
+If you change the Space listen port in Settings, ensure **`app_port`** in this README matches and that the container listens on **`PORT`** (defaults to **8000**).
 
 ## Run locally with full features
 
@@ -37,16 +42,15 @@ cd Doc-Ingestion
 bash scripts/bootstrap_demo.sh
 ```
 
-Or with Docker (one command):
+Or with Docker (API + UI on one port):
 
 ```bash
 cp docker/.env.example docker/.env
 # Edit docker/.env to add your API keys
-docker compose -f docker/docker-compose.yml up
+docker compose -f docker/docker-compose.yml up --build
 ```
 
-Open http://localhost:8501 for the UI.
-For standard local development (non-demo), keep running FastAPI and Streamlit as separate processes.
+Open **http://localhost:8000** for the React UI and API.
 
 ## Source code
 

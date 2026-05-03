@@ -1,11 +1,16 @@
+# Full stack (React + FastAPI) in one container on :8000. Streamlit is not part of this stack;
+# run it locally only if needed: PYTHONPATH=. streamlit run src/web/streamlit_app.py
 services:
   api:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: Dockerfile
     container_name: doc_ingestion_api
     environment:
       - ENV=dev
+      # React demo session + uploads (override for hardened deploys).
+      - DOC_PROFILE=${DOC_PROFILE:-demo}
+      - DOC_DEMO_UPLOADS=${DOC_DEMO_UPLOADS:-1}
       - DOC_API_KEYS=${DOC_API_KEYS:-change-me}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -17,6 +22,7 @@ services:
       - SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface/sentence_transformers
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+      - PORT=8000
     volumes:
       - ../data:/app/data
       - ../config.yaml:/app/config.yaml
@@ -26,33 +32,6 @@ services:
     depends_on:
       - qdrant
       - redis
-
-  streamlit:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: doc_ingestion_streamlit
-    command: ["streamlit", "run", "src/web/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
-    environment:
-      - DOC_INGEST_API_URL=http://api:8000
-      - DOC_API_KEY=${DOC_API_KEY:-change-me}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - HF_HOME=/app/.cache/huggingface
-      - TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
-      - SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface/sentence_transformers
-      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
-      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
-    volumes:
-      - ../data:/app/data
-      - ../config.yaml:/app/config.yaml
-      - hf_cache:/app/.cache/huggingface
-    ports:
-      - "8501:8501"
-    depends_on:
-      - api
 
   redis:
     image: redis:7-alpine

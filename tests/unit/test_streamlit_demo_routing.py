@@ -93,3 +93,30 @@ def test_run_query_via_api_uses_http_post(monkeypatch):
     assert captured["json"] == payload
     assert captured["headers"] == headers
     assert captured["timeout"] == 120
+
+
+def test_demo_upload_mode_routes_query_via_api_with_session(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(streamlit_app, "_DEMO_MODE", True)
+    monkeypatch.setattr(streamlit_app, "_DEMO_UPLOADS_ENABLED", True)
+
+    def _fake_get_or_create(headers):
+        captured["headers"] = dict(headers)
+        return "sess_123"
+
+    def _fake_run_query_via_api(payload, headers):
+        captured["payload"] = dict(payload)
+        captured["headers_post"] = dict(headers)
+        return {"answer": "ok"}
+
+    monkeypatch.setattr(streamlit_app, "_get_or_create_demo_session", _fake_get_or_create)
+    monkeypatch.setattr(streamlit_app, "_run_query_via_api", _fake_run_query_via_api)
+
+    payload = {"query": "hello"}
+    headers = {"Content-Type": "application/json"}
+    sid = streamlit_app._get_or_create_demo_session(headers)
+    payload["session_id"] = sid
+    out = streamlit_app._run_query_via_api(payload, headers)
+    assert out["answer"] == "ok"
+    assert captured["payload"]["session_id"] == "sess_123"

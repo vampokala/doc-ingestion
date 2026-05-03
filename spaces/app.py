@@ -32,6 +32,12 @@ os.environ.setdefault("DOC_API_KEYS", "demo-key")
 # No local Ollama daemon on Spaces — use sentence-transformers for embeddings.
 os.environ.setdefault("OLLAMA_BASE_URL", "http://localhost:11434")
 os.environ.setdefault("DOC_EMBEDDING_PROVIDER", "sentence_transformers")
+os.environ.setdefault("DOC_DEMO_UPLOADS", "1")
+os.environ.setdefault("DOC_DEMO_SESSION_ROOT", "/tmp/doc-ingest-sessions")
+os.environ.setdefault("DOC_DEMO_MAX_FILES", "3")
+os.environ.setdefault("DOC_DEMO_MAX_FILE_MB", "3")
+os.environ.setdefault("DOC_DEMO_MAX_SESSION_MB", "8")
+os.environ.setdefault("DOC_DEMO_SESSION_TTL", "1800")
 
 # Bootstrap sample documents on first run.
 from spaces.bootstrap_demo import bootstrap_if_needed  # noqa: E402

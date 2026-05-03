@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,8 @@ class QueryRequestModel(BaseModel):
     model: Optional[str] = None
     reranker_model: Optional[str] = None
     provider_api_key: Optional[str] = None
+    session_id: Optional[str] = None
+    knowledge_scope: Literal["global", "session", "both"] = "global"
 
 
 class CitationModel(BaseModel):
@@ -67,3 +69,11 @@ class HealthModel(BaseModel):
 class MetricsModel(BaseModel):
     cache_ttl_seconds: int
     available_providers: List[str]
+
+
+class LLMConfigModel(BaseModel):
+    """Public LLM routing options for UI clients (no secrets)."""
+
+    default_provider: str
+    default_model_by_provider: Dict[str, str]
+    allowed_models_by_provider: Dict[str, List[str]]
