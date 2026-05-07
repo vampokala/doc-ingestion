@@ -234,10 +234,16 @@ def health() -> HealthModel:
 def llm_config() -> LLMConfigModel:
     """Allowed providers/models and defaults from server config (for UI dropdowns)."""
     llm = _cfg.llm
+    provider_key_configured = {
+        provider: llm.provider_has_key(provider)
+        for provider in llm.allowed_models_by_provider.keys()
+    }
     return LLMConfigModel(
         default_provider=llm.default_provider,
         default_model_by_provider=dict(llm.default_model_by_provider),
         allowed_models_by_provider={k: list(v) for k, v in llm.allowed_models_by_provider.items()},
+        provider_key_configured=provider_key_configured,
+        demo_mode=os.getenv("DOC_PROFILE", "").strip().lower() == "demo",
     )
 
 

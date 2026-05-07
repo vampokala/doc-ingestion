@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 
 async function mockLlmConfig(page: Page) {
-  await page.route('http://127.0.0.1:8000/config/llm', async (route) => {
+  await page.route('**/config/llm', async (route) => {
     await route.fulfill({
       json: {
         default_provider: 'ollama',
@@ -13,6 +13,11 @@ async function mockLlmConfig(page: Page) {
           ollama: ['qwen2.5:7b'],
           openai: ['gpt-4o-mini'],
         },
+        provider_key_configured: {
+          ollama: true,
+          openai: true,
+        },
+        demo_mode: true,
       },
     })
   })
@@ -20,7 +25,7 @@ async function mockLlmConfig(page: Page) {
 
 test('no uploads keeps Mine and Both disabled', async ({ page }) => {
   await mockLlmConfig(page)
-  await page.route('http://127.0.0.1:8000/sessions', async (route) => {
+  await page.route('**/sessions', async (route) => {
     await route.fulfill({
       json: {
         session_id: 'abc123demo',
@@ -32,7 +37,7 @@ test('no uploads keeps Mine and Both disabled', async ({ page }) => {
       },
     })
   })
-  await page.route('http://127.0.0.1:8000/sessions/abc123demo', async (route) => {
+  await page.route('**/sessions/abc123demo', async (route) => {
     await route.fulfill({
       json: {
         session_id: 'abc123demo',
@@ -53,7 +58,7 @@ test('no uploads keeps Mine and Both disabled', async ({ page }) => {
 
 test('query streams an answer', async ({ page }) => {
   await mockLlmConfig(page)
-  await page.route('http://127.0.0.1:8000/sessions', async (route) => {
+  await page.route('**/sessions', async (route) => {
     await route.fulfill({
       json: {
         session_id: 'abc123demo',
@@ -65,7 +70,7 @@ test('query streams an answer', async ({ page }) => {
       },
     })
   })
-  await page.route('http://127.0.0.1:8000/query/stream', async (route) => {
+  await page.route('**/query/stream', async (route) => {
     await route.fulfill({
       contentType: 'text/event-stream',
       body: 'data: {"type":"token","text":"Hello from stream"}\n\ndata: {"type":"final","citations":[],"provider":"ollama","model":"llama3"}\n\ndata: [DONE]\n\n',

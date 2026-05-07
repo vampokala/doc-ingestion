@@ -9,7 +9,7 @@ import hashlib
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Protocol
 
 import PyPDF2
 import tiktoken
@@ -31,6 +31,14 @@ class _RegexTokenizer:
         return " ".join(token_ids)
 
 
+class _Tokenizer(Protocol):
+    def encode(self, text: str) -> List[Any]:
+        ...
+
+    def decode(self, token_ids: List[Any]) -> str:
+        ...
+
+
 class DocumentProcessor:
     def __init__(self, chunk_size: int = 600, overlap: int = 100, tokenizer_name: str = "gpt2"):
         if chunk_size <= 0:
@@ -42,6 +50,7 @@ class DocumentProcessor:
         self.chunk_size = chunk_size
         self.overlap = overlap
         self.tokenizer_name = tokenizer_name
+        self._tokenizer: _Tokenizer
         try:
             self._tokenizer = tiktoken.get_encoding(tokenizer_name)
         except Exception:

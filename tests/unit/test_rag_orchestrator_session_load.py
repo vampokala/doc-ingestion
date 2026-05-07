@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from src.core.bm25_index import BM25Index
 from src.core.rag_orchestrator import (
     BM25_INDEX_PATH,
