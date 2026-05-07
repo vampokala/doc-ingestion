@@ -13,6 +13,8 @@ from evals.run_evals import (
     aggregate,
     answer_correctness_rouge,
     answer_relevancy,
+    citation_rate,
+    citation_resolution_rate,
     context_precision_at_k,
     context_recall,
     evaluate_dataset,
@@ -142,6 +144,8 @@ def test_evaluate_dataset_with_mock(sample_dataset):
         assert "context_precision" in r
         assert "context_recall" in r
         assert "answer_correctness_rouge" in r
+        assert "citation_resolution_rate" in r
+        assert "nli_source_mode" in r
         assert 0.0 <= r["answer_relevancy"] <= 1.0
 
 
@@ -151,8 +155,42 @@ def test_aggregate_all_fields(sample_dataset):
     agg = aggregate(results)
     assert "mean_answer_relevancy" in agg
     assert "mean_answer_correctness_rouge" in agg
+    assert "mean_citation_resolution_rate" in agg
     for v in agg.values():
         assert 0.0 <= v <= 1.0
+
+
+def test_citation_rate_supported_only():
+    citations = [
+        {"resolved": True, "verification": "weak_support", "verification_score": 0.8},
+        {"resolved": True, "verification": "supported", "verification_score": 0.9},
+    ]
+    assert citation_rate(citations) == 1.0
+
+
+def test_citation_resolution_rate_tracks_resolved():
+    citations = [{"resolved": False}, {"resolved": True}]
+    assert citation_resolution_rate(citations) == 1.0
+
+
+def test_evaluate_dataset_includes_truthfulness_fields():
+    class FakeScorer:
+        def score(self, _answer, _sources, _citations):
+            class _Result:
+                nli_faithfulness = 0.9
+                citation_groundedness = 0.8
+                uncited_claims = 1
+                score = 0.86
+
+            return _Result()
+
+    pipeline = MockPipeline()
+    sample = [{"user_input": "What is RAG?", "reference": "RAG.", "reference_contexts": []}]
+    rows = evaluate_dataset(sample, pipeline, faithfulness_scorer=FakeScorer())
+    assert rows[0]["nli_faithfulness"] == 0.9
+    assert rows[0]["citation_groundedness"] == 0.8
+    assert rows[0]["uncited_claims"] == 1
+    assert rows[0]["score"] == 0.86
 
 
 # ---------------------------------------------------------------------------

@@ -275,6 +275,11 @@ PYTHONPATH=. python -m evals.run_evals \
 
 Reports are written to `evals/reports/` as JSON and Markdown.
 
+Offline report notes:
+
+- `citation_rate` means at least one citation is verifier-classified as `supported`.
+- `citation_resolution_rate` means at least one citation marker was resolved to a retrieved chunk.
+
 ## Project Map
 
 - [`src/core/`](src/core/) - retrieval, reranking, generation, citations, orchestration

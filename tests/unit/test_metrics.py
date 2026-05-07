@@ -16,7 +16,7 @@ def test_metrics_collector_records_request():
         reranking_latency_ms=150.0,
         generation_latency_ms=600.0,
         citation_latency_ms=50.0,
-        truthfulness_latency_ms=0.0,
+        truthfulness_latency_ms=20.0,
         cost_usd=0.005,
         citation_groundedness=0.92,
         nli_faithfulness=0.88,
@@ -41,7 +41,7 @@ def test_metrics_percentile_calculation():
             reranking_latency_ms=50.0,
             generation_latency_ms=float(i * 5),
             citation_latency_ms=10.0,
-            truthfulness_latency_ms=0.0,
+            truthfulness_latency_ms=5.0,
             cost_usd=0.01,
             citation_groundedness=0.90,
             nli_faithfulness=0.90,
@@ -72,7 +72,7 @@ def test_dashboard_metrics_aggregation():
             reranking_latency_ms=150.0,
             generation_latency_ms=600.0,
             citation_latency_ms=50.0,
-            truthfulness_latency_ms=0.0,
+            truthfulness_latency_ms=25.0,
             cost_usd=0.005,
             citation_groundedness=0.92,
             nli_faithfulness=0.88,
@@ -88,6 +88,8 @@ def test_dashboard_metrics_aggregation():
     assert "cost" in dashboard
     assert "quality" in dashboard
     assert dashboard["latency"]["total_p50_ms"] > 0
+    assert dashboard["latency"]["truthfulness_avg_ms"] == 25.0
+    assert "truthfulness" in dashboard["latency"]["breakdown_pct"]
 
 
 def test_dashboard_no_data():
@@ -111,7 +113,7 @@ def test_metrics_rolling_window():
             reranking_latency_ms=150.0,
             generation_latency_ms=600.0,
             citation_latency_ms=50.0,
-            truthfulness_latency_ms=0.0,
+            truthfulness_latency_ms=None,
             cost_usd=0.005,
             citation_groundedness=0.92,
             nli_faithfulness=0.88,
@@ -132,3 +134,26 @@ def test_metrics_collector_singleton():
     collector1 = get_metrics_collector()
     collector2 = get_metrics_collector()
     assert collector1 is collector2
+
+
+def test_dashboard_ignores_missing_step_latency():
+    collector = MetricsCollector(window_size=10)
+    collector.record_request(
+        RequestMetrics(
+            request_id="cache-hit",
+            total_latency_ms=50.0,
+            retrieval_latency_ms=None,
+            reranking_latency_ms=None,
+            generation_latency_ms=None,
+            citation_latency_ms=None,
+            truthfulness_latency_ms=None,
+            cost_usd=0.0,
+            citation_groundedness=0.0,
+            nli_faithfulness=0.0,
+            uncited_claims=0,
+            timestamp=datetime.utcnow().isoformat(),
+            cached=True,
+        )
+    )
+    dashboard = collector.get_dashboard_metrics()
+    assert dashboard["latency"]["truthfulness_avg_ms"] == 0.0

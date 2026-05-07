@@ -231,6 +231,27 @@ def _calculate_cost(provider: str, model: str, answer_tokens: int = 0, query_tok
         return 0.0
 
 
+def _build_request_metrics(request_id: str, out: QueryResponse) -> RequestMetrics:
+    """Build metrics with explicit cache-hit step latency semantics."""
+    step_latencies = out.step_latencies or {}
+    is_cached = bool(out.cached)
+    return RequestMetrics(
+        request_id=request_id,
+        total_latency_ms=out.processing_time_ms,
+        retrieval_latency_ms=None if is_cached else step_latencies.get("retrieval", 0.0),
+        reranking_latency_ms=None if is_cached else step_latencies.get("reranking", 0.0),
+        generation_latency_ms=None if is_cached else step_latencies.get("generation", 0.0),
+        citation_latency_ms=None if is_cached else step_latencies.get("citation_verification", 0.0),
+        truthfulness_latency_ms=None if is_cached else step_latencies.get("truthfulness_scoring", 0.0),
+        cost_usd=_calculate_cost(out.provider, out.model),
+        citation_groundedness=out.truthfulness.citation_groundedness if out.truthfulness else 0.0,
+        nli_faithfulness=out.truthfulness.nli_faithfulness if out.truthfulness else 0.0,
+        uncited_claims=out.truthfulness.uncited_claims if out.truthfulness else 0,
+        timestamp=datetime.utcnow().isoformat(),
+        cached=is_cached,
+    )
+
+
 @app.get("/health", response_model=HealthModel)
 def health() -> HealthModel:
     return HealthModel(status="ok", collection=COLLECTION_NAME)
@@ -479,24 +500,7 @@ def query(
 
     citation_models = [CitationModel.model_validate(c) for c in out.citations]
 
-    # Record metrics for observability dashboard
-    step_latencies = out.step_latencies or {}
-    cost = _calculate_cost(out.provider, out.model)
-    metrics = RequestMetrics(
-        request_id=request_id,
-        total_latency_ms=out.processing_time_ms,
-        retrieval_latency_ms=step_latencies.get("retrieval", 0.0),
-        reranking_latency_ms=step_latencies.get("reranking", 0.0),
-        generation_latency_ms=step_latencies.get("generation", 0.0),
-        citation_latency_ms=step_latencies.get("citation_verification", 0.0),
-        truthfulness_latency_ms=step_latencies.get("truthfulness_scoring", 0.0),
-        cost_usd=cost,
-        citation_groundedness=out.truthfulness.citation_groundedness if out.truthfulness else 0.0,
-        nli_faithfulness=out.truthfulness.nli_faithfulness if out.truthfulness else 0.0,
-        uncited_claims=out.truthfulness.uncited_claims if out.truthfulness else 0,
-        timestamp=datetime.utcnow().isoformat(),
-    )
-    _metrics_collector.record_request(metrics)
+    _metrics_collector.record_request(_build_request_metrics(request_id, out))
 
     observer = get_observer()
     background_tasks.add_task(observer.flush_async)
@@ -551,6 +555,7 @@ def query_stream(
         }
 
     def _gen() -> Iterator[str]:
+        request_id = str(uuid.uuid4())
         try:
             stream_req = QueryRequest(
                 query_text=req.query,
@@ -583,7 +588,11 @@ def query_stream(
                 "truthfulness": final.truthfulness.to_dict() if final.truthfulness is not None else None,
                 "provider": final.provider,
                 "model": final.model,
+                "processing_time_ms": final.processing_time_ms,
+                "cached": final.cached,
+                "validation_issues": final.validation_issues,
             }
+            _metrics_collector.record_request(_build_request_metrics(request_id, final))
             yield f"data: {json.dumps(final_payload)}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as exc:

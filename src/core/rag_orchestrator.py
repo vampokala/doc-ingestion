@@ -328,7 +328,8 @@ class RAGOrchestrator:
             processing_time_ms=processing_time_ms,
             cached=True,
             truthfulness=truthfulness,
-            step_latencies={},
+            # Cache-hit responses do not have fresh per-step timings.
+            step_latencies={"cache_hit": 1.0},
         )
 
     def _finalize_generation_pipeline(
