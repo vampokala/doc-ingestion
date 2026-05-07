@@ -121,7 +121,9 @@ export function QueryTab() {
   const [isStreaming, setIsStreaming] = useState(false)
 
   const modelOptions = llmConfig && provider ? llmConfig.allowed_models_by_provider[provider] ?? [] : []
-  const needsProviderKey = provider !== '' && provider !== 'ollama'
+  const serverProviderKeyConfigured = !!(llmConfig && provider && llmConfig.provider_key_configured?.[provider])
+  const isDemoMode = !!llmConfig?.demo_mode
+  const needsProviderKey = provider !== '' && provider !== 'ollama' && !serverProviderKeyConfigured
 
   const submit = async () => {
     const trimmed = queryText.trim()
@@ -134,7 +136,7 @@ export function QueryTab() {
       return
     }
     if (needsProviderKey && !providerApiKey.trim()) {
-      setMessage(`Paste your ${provider} API key to use this provider, or switch to Ollama for local inference.`)
+      setMessage(`No server key is configured for ${provider}. Paste your ${provider} API key to continue.`)
       return
     }
     if (scope !== 'global' && !hasUploads) {
@@ -248,7 +250,7 @@ export function QueryTab() {
           <p className="text-sm text-slate-600">{llmConfigLoading ? 'Loading model options…' : null}</p>
         )}
 
-        {needsProviderKey ? (
+        {provider !== '' && provider !== 'ollama' ? (
           <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-slate-700">
@@ -260,11 +262,22 @@ export function QueryTab() {
                 type="password"
                 autoComplete="off"
                 className="w-full rounded-xl border border-slate-300 bg-white p-3 text-slate-900 shadow-sm"
-                placeholder="sk-… or session key (sent only with this request)"
+                placeholder={
+                  serverProviderKeyConfigured
+                    ? "Optional override: paste your own key for this request"
+                    : "Required: paste your key (server key not configured)"
+                }
                 value={providerApiKey}
                 onChange={(e) => setProviderApiKeyDraft(e.target.value)}
               />
             </label>
+            <p className="text-xs text-slate-600">
+              {serverProviderKeyConfigured
+                ? `Server key is configured for ${provider}. ${
+                    isDemoMode ? 'Demo users can query without providing a key.' : 'Your key is optional.'
+                  }`
+                : `No server key configured for ${provider}. Provide your own key to run this provider.`}
+            </p>
             <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
               <input
                 type="checkbox"

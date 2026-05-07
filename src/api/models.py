@@ -77,3 +77,11 @@ class LLMConfigModel(BaseModel):
     default_provider: str
     default_model_by_provider: Dict[str, str]
     allowed_models_by_provider: Dict[str, List[str]]
+    provider_key_configured: Dict[str, bool] = Field(
+        default_factory=dict,
+        description="Whether server-side API key env vars are configured for each provider",
+    )
+    demo_mode: bool = Field(
+        False,
+        description="True when API is running in hosted demo profile",
+    )

@@ -24,6 +24,13 @@ const mockLlmConfig = {
     anthropic: ['claude-sonnet-4-6'],
     gemini: ['gemini-2.5-flash'],
   },
+  provider_key_configured: {
+    ollama: true,
+    openai: true,
+    anthropic: true,
+    gemini: true,
+  },
+  demo_mode: true,
 }
 
 export const handlers = [

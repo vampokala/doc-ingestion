@@ -28,6 +28,9 @@ def test_llm_config_endpoint():
     assert data["default_provider"]
     assert "ollama" in data["allowed_models_by_provider"]
     assert isinstance(data["allowed_models_by_provider"]["ollama"], list)
+    assert isinstance(data["provider_key_configured"], dict)
+    assert "ollama" in data["provider_key_configured"]
+    assert isinstance(data["demo_mode"], bool)
 
 
 def test_query_endpoint(monkeypatch):

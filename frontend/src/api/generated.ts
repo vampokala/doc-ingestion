@@ -68,4 +68,6 @@ export interface LlmConfigModel {
   default_provider: string
   default_model_by_provider: Record<string, string>
   allowed_models_by_provider: Record<string, string[]>
+  provider_key_configured: Record<string, boolean>
+  demo_mode: boolean
 }
