@@ -10,9 +10,9 @@ from contextlib import contextmanager
 from typing import Any, Dict, Optional
 
 try:
-    from langfuse import Langfuse
+    from langfuse import Langfuse as _Langfuse
 except ImportError:
-    Langfuse = None
+    _Langfuse = None
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,12 @@ class RAGObserver:
                 span["output"] = {"chunks": len(result)}
     """
 
-    def __init__(self, enabled: bool = True, public_key: str = None, secret_key: str = None):
+    def __init__(
+        self,
+        enabled: bool = True,
+        public_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+    ):
         """
         Args:
             enabled: If False, all tracing is no-op (demo mode, tests)
@@ -37,22 +42,22 @@ class RAGObserver:
             secret_key: LangFuse secret key (defaults to LANGFUSE_SECRET_KEY env var)
         """
         self.enabled = enabled
-        self.client = None
+        self.client: Any | None = None
 
         if self.enabled:
-            if Langfuse is None:
+            if _Langfuse is None:
                 logger.warning("langfuse package not installed; observability disabled")
                 self.enabled = False
                 return
 
             try:
-                public_key = public_key or os.getenv("LANGFUSE_PUBLIC_KEY")
-                secret_key = secret_key or os.getenv("LANGFUSE_SECRET_KEY")
+                resolved_public_key = public_key or os.getenv("LANGFUSE_PUBLIC_KEY")
+                resolved_secret_key = secret_key or os.getenv("LANGFUSE_SECRET_KEY")
 
-                if public_key and secret_key:
-                    self.client = Langfuse(
-                        public_key=public_key,
-                        secret_key=secret_key,
+                if resolved_public_key and resolved_secret_key:
+                    self.client = _Langfuse(
+                        public_key=resolved_public_key,
+                        secret_key=resolved_secret_key,
                         host=os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
                     )
                     logger.info("LangFuse observability enabled")
