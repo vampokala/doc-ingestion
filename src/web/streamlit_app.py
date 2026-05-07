@@ -132,6 +132,9 @@ def _truthfulness_badge(score: float) -> str:
 
 
 def _provider_ready(provider: str, session_provider_key: str = "") -> bool:
+    if _DEMO_MODE:
+        # Hosted demo uses server-side provider secrets.
+        return True
     if session_provider_key.strip():
         return True
     env_name = provider_api_key_env(provider)
@@ -230,38 +233,44 @@ def _render_query_tab() -> None:
     )
     auth_required = bool(getattr(cfg, "api", None) and cfg.api.auth_enabled)
     default_gateway_key = _gateway_default_from_config(cfg)
-    resolved_api_key = _render_auth_controls(auth_required, default_gateway_key)
-    require_api_key_for_provider = auth_required and selected_provider != "ollama"
+    if _DEMO_MODE:
+        resolved_api_key = _api_key_from_session_or_env(default_gateway_key)
+    else:
+        resolved_api_key = _render_auth_controls(auth_required, default_gateway_key)
+    require_api_key_for_provider = auth_required and (not _DEMO_MODE) and selected_provider != "ollama"
 
-    with st.sidebar.expander("Provider Keys (session-only)", expanded=False):
-        st.caption("Optional: paste provider API keys for this browser session.")
-        with st.form("provider_keys_form", clear_on_submit=False):
-            openai_input = st.text_input(
-                "OpenAI key",
-                value=str(st.session_state.get("provider_key_openai", "")),
-                type="password",
-            )
-            anthropic_input = st.text_input(
-                "Anthropic key",
-                value=str(st.session_state.get("provider_key_anthropic", "")),
-                type="password",
-            )
-            gemini_input = st.text_input(
-                "Gemini key",
-                value=str(st.session_state.get("provider_key_gemini", "")),
-                type="password",
-            )
-            applied = st.form_submit_button("Apply provider keys")
-            if applied:
-                st.session_state["provider_key_openai"] = openai_input.strip()
-                st.session_state["provider_key_anthropic"] = anthropic_input.strip()
-                st.session_state["provider_key_gemini"] = gemini_input.strip()
-                st.success("Provider session keys applied.")
-        if st.button("Clear provider keys"):
-            st.session_state["provider_key_openai"] = ""
-            st.session_state["provider_key_anthropic"] = ""
-            st.session_state["provider_key_gemini"] = ""
-            st.success("Provider session keys cleared.")
+    if _DEMO_MODE:
+        st.sidebar.caption("Demo mode uses server-side provider secrets.")
+    else:
+        with st.sidebar.expander("Provider Keys (session-only)", expanded=False):
+            st.caption("Optional: paste provider API keys for this browser session.")
+            with st.form("provider_keys_form", clear_on_submit=False):
+                openai_input = st.text_input(
+                    "OpenAI key",
+                    value=str(st.session_state.get("provider_key_openai", "")),
+                    type="password",
+                )
+                anthropic_input = st.text_input(
+                    "Anthropic key",
+                    value=str(st.session_state.get("provider_key_anthropic", "")),
+                    type="password",
+                )
+                gemini_input = st.text_input(
+                    "Gemini key",
+                    value=str(st.session_state.get("provider_key_gemini", "")),
+                    type="password",
+                )
+                applied = st.form_submit_button("Apply provider keys")
+                if applied:
+                    st.session_state["provider_key_openai"] = openai_input.strip()
+                    st.session_state["provider_key_anthropic"] = anthropic_input.strip()
+                    st.session_state["provider_key_gemini"] = gemini_input.strip()
+                    st.success("Provider session keys applied.")
+            if st.button("Clear provider keys"):
+                st.session_state["provider_key_openai"] = ""
+                st.session_state["provider_key_anthropic"] = ""
+                st.session_state["provider_key_gemini"] = ""
+                st.success("Provider session keys cleared.")
 
     if require_api_key_for_provider and not resolved_api_key:
         st.warning(

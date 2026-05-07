@@ -31,7 +31,13 @@ from src.api.models import (
     TruthfulnessModel,
 )
 from src.core.observability import get_observer
-from src.core.rag_orchestrator import COLLECTION_NAME, QueryRequest, QueryResponse, RAGOrchestrator
+from src.core.rag_orchestrator import (
+    COLLECTION_NAME,
+    QueryRequest,
+    QueryResponse,
+    RAGOrchestrator,
+    StreamingQuerySession,
+)
 from src.monitoring.metrics import RequestMetrics, get_metrics_collector
 from src.utils.config import load_config
 from src.web import session_corpus
@@ -559,9 +565,10 @@ def query_stream(
                 include_citations=req.include_citations,
                 **session_kwargs,
             )
-            for piece in _orchestrator.stream(stream_req):
-                yield f"data: {json.dumps({'type': 'token', 'text': piece})}\n\n"
-            final = _orchestrator.run(stream_req)
+            with StreamingQuerySession(_orchestrator, stream_req) as session:
+                for piece in session.iter_tokens():
+                    yield f"data: {json.dumps({'type': 'token', 'text': piece})}\n\n"
+                final = session.finalize()
             _audit_log(
                 "stream_success",
                 request,

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Union
+
+if TYPE_CHECKING:
+    from src.evaluation.truthfulness import TruthfulnessResult
 
 from src.core.context_optimizer import ContextOptimizer, OptimizedContext
 from src.core.llm_provider import LLMProviderRouter
@@ -25,6 +28,8 @@ class GenerationResult:
     prompt: str = ""
     optimized_context: OptimizedContext | None = None
     provider: str = "ollama"
+    # Persisted on cache write so cache hits can return inline scores without re-running NLI.
+    truthfulness: Optional["TruthfulnessResult"] = None
 
 
 @dataclass
