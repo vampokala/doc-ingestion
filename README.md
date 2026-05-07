@@ -13,7 +13,7 @@ license: mit
 
 Doc-Ingestion is a citation-aware RAG system that turns private document collections into grounded question-answering experiences. It demonstrates how to ingest documents, retrieve the right evidence, generate answers from that evidence, and return citations plus truthfulness signals through a React UI (served by FastAPI), standalone FastAPI, optional Streamlit legacy UI, and CLI.
 
-> **[Try the live demo on Hugging Face Spaces](https://huggingface.co/spaces/vampokala/doc-ingestion)** - no install required.
+> <strong><a href="https://huggingface.co/spaces/vampokala/doc-ingestion" target="_blank" rel="noopener noreferrer">Try the live demo on Hugging Face Spaces</a></strong> - no install required.
 
 ## Why This Project Exists
 
