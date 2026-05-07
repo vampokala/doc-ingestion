@@ -91,7 +91,7 @@ def run_query(
 
     model = llm_model or os.environ.get("OLLAMA_QUERY_MODEL") or cfg.generation.model or DEFAULT_LLM_MODEL
     cache = ResponseCache(ttl_seconds=int(cfg.generation.cache_ttl))
-    key = cache_key(query_text, model, top_k)
+    key = cache_key(query_text, model, top_k, response_mode="sync")
 
     cached = cache.get(key) if use_llm else None
     if cached is not None:

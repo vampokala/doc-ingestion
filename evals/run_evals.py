@@ -299,6 +299,38 @@ def _try_ragas_faithfulness(
 # Main evaluation loop
 # ---------------------------------------------------------------------------
 
+def _retrieved_dicts_to_nli_sources(
+    question: str,
+    retrieved_chunks: List[Dict[str, Any]],
+    *,
+    max_context_tokens: int,
+    tokenizer_name: str,
+) -> List[str]:
+    """Match inline `/query` truthfulness: NLI over context-optimizer output, not raw top-k chunks."""
+    if not retrieved_chunks:
+        return []
+    try:
+        from src.core.context_optimizer import ContextOptimizer
+        from src.core.retrieval_result import RetrievalResult
+    except ImportError:
+        return [str(r.get("text", r.get("preview", ""))) for r in retrieved_chunks]
+
+    wrapped = [
+        RetrievalResult(
+            id=str(r.get("id", "")),
+            text=str(r.get("text", r.get("preview", ""))),
+            metadata=dict(r.get("metadata") or {}),
+            fusion_score=float(r.get("score") or 0.0),
+        )
+        for r in retrieved_chunks
+    ]
+    opt = ContextOptimizer(
+        max_context_tokens=max_context_tokens,
+        tokenizer_name=tokenizer_name,
+    ).optimize_context(question, wrapped)
+    return [str(d.get("text", "")) for d in opt.documents if d.get("text")]
+
+
 def evaluate_dataset(
     samples: List[Dict[str, Any]],
     pipeline: Any,
@@ -327,6 +359,21 @@ def evaluate_dataset(
             str(r.get("text", r.get("preview", ""))) for r in retrieved_chunks
         ]
 
+        nli_source_texts = retrieved_texts
+        if faithfulness_scorer is not None and retrieved_chunks:
+            try:
+                from src.utils.config import load_config
+
+                _cfg = load_config("config.yaml")
+                nli_source_texts = _retrieved_dicts_to_nli_sources(
+                    question,
+                    retrieved_chunks,
+                    max_context_tokens=_cfg.context.max_tokens,
+                    tokenizer_name=_cfg.context.tokenizer,
+                ) or retrieved_texts
+            except Exception:
+                nli_source_texts = retrieved_texts
+
         # Core metrics
         row: Dict[str, Any] = {
             "question": question,
@@ -343,7 +390,7 @@ def evaluate_dataset(
         # Inline faithfulness (NLI-based)
         if faithfulness_scorer is not None and answer.strip():
             try:
-                t_result = faithfulness_scorer.score(answer, retrieved_texts, citations)
+                t_result = faithfulness_scorer.score(answer, nli_source_texts, citations)
                 row["nli_faithfulness"] = t_result.nli_faithfulness
                 row["truthfulness_score"] = t_result.score
             except Exception as exc:

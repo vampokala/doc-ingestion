@@ -6,14 +6,14 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 from src.core.bm25_index import BM25Index
 from src.core.bm25_search import BM25Search
 from src.core.citation_tracker import CitationTracker
 from src.core.citation_verifier import CitationVerifier
 from src.core.context_optimizer import ContextOptimizer
-from src.core.generator import GenerationResult, RAGGenerator
+from src.core.generator import GenerationResult, RAGGenerator, ValidationResult
 from src.core.hybrid_retriever import HybridRetriever
 from src.core.llm_provider import LLMProviderRouter
 from src.core.observability import get_observer
@@ -172,16 +172,8 @@ class RAGOrchestrator:
                 break
         return out
 
-    def run(self, req: QueryRequest) -> QueryResponse:
-        t0 = time.perf_counter()
-        step_latencies: Dict[str, float] = {}
-
-        selection = self.provider_router.resolve_selection(
-            req.provider,
-            req.model or os.environ.get("OLLAMA_QUERY_MODEL"),
-            has_api_key_override=bool((req.provider_api_key or "").strip()),
-        )
-        key = cache_key(
+    def _make_cache_key(self, req: QueryRequest, selection: Any) -> str:
+        return cache_key(
             req.query_text,
             selection.model,
             req.top_k,
@@ -192,87 +184,221 @@ class RAGOrchestrator:
                 f"{COLLECTION_NAME}:{BM25_INDEX_PATH}|{req.knowledge_scope}|"
                 f"{req.session_collection_name or '-'}:{req.session_bm25_index_path or '-'}"
             ),
+            response_mode="stream" if req.stream else "sync",
         )
+
+    def _retrieve_docs_for_query(
+        self,
+        req: QueryRequest,
+        trace: Any,
+        step_latencies: Dict[str, float],
+    ) -> tuple[Union[List[RetrievalResult], List[RankedResult]], List[RetrievalResult]]:
+        index, db, qp, session_pair, effective_scope = self._load_components(req)
+        retrieve_k = max(req.top_k, 20) if req.use_rerank else req.top_k
+
+        with self.observer.trace_step(trace, "retrieval", {"top_k": retrieve_k}) as s:
+            t_retrieval = time.perf_counter()
+            if effective_scope == "session" and session_pair is not None:
+                s_index, s_db = session_pair
+                fused = self._retrieve(
+                    req.query_text,
+                    s_index,
+                    s_db,
+                    qp,
+                    top_k=retrieve_k,
+                    collection_name=req.session_collection_name or COLLECTION_NAME,
+                )
+            elif effective_scope == "both" and session_pair is not None:
+                global_results = self._retrieve(req.query_text, index, db, qp, top_k=retrieve_k)
+                s_index, s_db = session_pair
+                session_results = self._retrieve(
+                    req.query_text,
+                    s_index,
+                    s_db,
+                    qp,
+                    top_k=retrieve_k,
+                    collection_name=req.session_collection_name or COLLECTION_NAME,
+                )
+                fused = self._dedup_results(global_results + session_results, retrieve_k)
+            else:
+                fused = self._retrieve(req.query_text, index, db, qp, top_k=retrieve_k)
+            step_latencies["retrieval"] = (time.perf_counter() - t_retrieval) * 1000.0
+            s["chunks_retrieved"] = len(fused)
+
+        ranked: List[RankedResult] | None = None
+        docs_for_gen: Union[List[RetrievalResult], List[RankedResult]]
+        display_items: List[RetrievalResult]
+
+        if req.use_rerank:
+            with self.observer.trace_step(trace, "reranking", {"input_chunks": len(fused)}) as s:
+                t_rerank = time.perf_counter()
+                try:
+                    reranker = CrossEncoderReranker(
+                        model_name=req.reranker_model or self.cfg.reranker.model,
+                        batch_size=self.cfg.reranker.batch_size,
+                        score_threshold=self.cfg.reranker.score_threshold,
+                    )
+                    ranked = reranker.rerank(req.query_text, fused, top_k=req.top_k)
+                except Exception as exc:
+                    logger.warning("Reranker unavailable; falling back to retrieval order: %s", exc)
+                    ranked = None
+                step_latencies["reranking"] = (time.perf_counter() - t_rerank) * 1000.0
+                if ranked is not None:
+                    docs_for_gen = ranked
+                    display_items = [r.result for r in ranked]
+                    s["output_chunks"] = len(ranked)
+                else:
+                    docs_for_gen = fused[: req.top_k]
+                    display_items = list(docs_for_gen)
+                    s["output_chunks"] = len(display_items)
+                    s["fallback"] = "retrieval_order"
+        else:
+            docs_for_gen = fused[: req.top_k]
+            display_items = list(docs_for_gen)
+            step_latencies["reranking"] = 0.0
+
+        return docs_for_gen, display_items
+
+    def _log_truthfulness_skip(
+        self,
+        req: QueryRequest,
+        reason: str,
+        *,
+        cached: bool = False,
+        exc: Optional[BaseException] = None,
+    ) -> None:
+        preview = req.query_text[:120] + ("…" if len(req.query_text) > 120 else "")
+        extra = f" exc_type={type(exc).__name__}" if exc else ""
+        logger.info(
+            "truthfulness_skip reason=%s cached=%s query_preview=%r%s",
+            reason,
+            cached,
+            preview,
+            extra,
+        )
+
+    def _score_truthfulness(
+        self,
+        req: QueryRequest,
+        response_text: str,
+        citations: List[Dict[str, Any]],
+        docs_for_gen: Union[List[RetrievalResult], List[RankedResult]],
+        optimized_context: Any = None,
+    ) -> Optional[TruthfulnessResult]:
+        scorer = self._get_truthfulness_scorer()
+        if scorer is None:
+            if response_text.strip():
+                self._log_truthfulness_skip(req, "disabled_config")
+            return None
+        if not response_text.strip():
+            self._log_truthfulness_skip(req, "empty_answer")
+            return None
+        ctx = optimized_context or self.context_optimizer.optimize_context(req.query_text, docs_for_gen)
+        source_texts = [str(d.get("text", "")) for d in ctx.documents if d.get("text")]
+        try:
+            return scorer.score(response_text, source_texts, citations)
+        except Exception as exc:
+            self._log_truthfulness_skip(req, "scorer_exception", exc=exc)
+            logger.warning("truthfulness scoring failed: %s", exc, exc_info=True)
+            return None
+
+    def _response_from_cache(
+        self,
+        req: QueryRequest,
+        selection: Any,
+        cached: GenerationResult,
+        processing_time_ms: float,
+    ) -> QueryResponse:
+        truthfulness = cached.truthfulness
+        if truthfulness is None and req.use_llm and cached.response_text.strip():
+            docs_fallback: List[RetrievalResult] = []
+            truthfulness = self._score_truthfulness(
+                req,
+                cached.response_text,
+                cached.citations,
+                docs_fallback,
+                optimized_context=cached.optimized_context,
+            )
+        return QueryResponse(
+            query=req.query_text,
+            provider=cached.provider,
+            model=cached.model_name,
+            answer=cached.response_text,
+            citations=cached.citations,
+            processing_time_ms=processing_time_ms,
+            cached=True,
+            truthfulness=truthfulness,
+            step_latencies={},
+        )
+
+    def _finalize_generation_pipeline(
+        self,
+        req: QueryRequest,
+        selection: Any,
+        key: str,
+        gen_result: GenerationResult,
+        docs_for_gen: Union[List[RetrievalResult], List[RankedResult]],
+        display_items: List[RetrievalResult],
+        generator: RAGGenerator,
+        trace: Any,
+        step_latencies: Dict[str, float],
+        t0: float,
+    ) -> tuple[ValidationResult, Optional[TruthfulnessResult]]:
+        """Citation map+verify, validate, truthfulness, cache write — shared by run() and streaming finalize."""
+        with self.observer.trace_step(trace, "citation_verification") as s:
+            t_cite = time.perf_counter()
+            ctx_docs = gen_result.optimized_context.documents if gen_result.optimized_context else []
+            tracked = self.citation_tracker.map_citations(gen_result.response_text, ctx_docs)
+            gen_result.citations = self.citation_verifier.verify(
+                gen_result.response_text, tracked, ctx_docs
+            )
+            step_latencies["citation_verification"] = (time.perf_counter() - t_cite) * 1000.0
+            s["citations_count"] = len(gen_result.citations)
+
+        val = generator.validate_response(
+            gen_result.response_text,
+            gen_result.optimized_context
+            or self.context_optimizer.optimize_context(req.query_text, docs_for_gen),
+        )
+
+        truthfulness: Optional[TruthfulnessResult] = None
+        with self.observer.trace_step(trace, "truthfulness_scoring") as s:
+            t_truth = time.perf_counter()
+            truthfulness = self._score_truthfulness(
+                req,
+                gen_result.response_text,
+                gen_result.citations,
+                docs_for_gen,
+                optimized_context=gen_result.optimized_context,
+            )
+            step_latencies["truthfulness_scoring"] = (time.perf_counter() - t_truth) * 1000.0
+            if truthfulness:
+                s["nli_faithfulness"] = truthfulness.nli_faithfulness
+                s["citation_groundedness"] = truthfulness.citation_groundedness
+
+        gen_result.truthfulness = truthfulness
+        self.cache.set(key, gen_result)
+        return val, truthfulness
+
+    def run(self, req: QueryRequest) -> QueryResponse:
+        t0 = time.perf_counter()
+        step_latencies: Dict[str, float] = {}
+
+        selection = self.provider_router.resolve_selection(
+            req.provider,
+            req.model or os.environ.get("OLLAMA_QUERY_MODEL"),
+            has_api_key_override=bool((req.provider_api_key or "").strip()),
+        )
+        key = self._make_cache_key(req, selection)
         cached = self.cache.get(key) if req.use_llm else None
         if cached is not None:
-            with self.observer.trace_request("rag_query_cached", query=req.query_text) as trace:
-                pass  # trace the cache hit
-            return QueryResponse(
-                query=req.query_text,
-                provider=cached.provider,
-                model=cached.model_name,
-                answer=cached.response_text,
-                citations=cached.citations,
-                processing_time_ms=cached.latency_ms,
-                cached=True,
-                step_latencies={},
-            )
+            with self.observer.trace_request("rag_query_cached", query=req.query_text):
+                pass
+            return self._response_from_cache(req, selection, cached, cached.latency_ms)
 
         with self.observer.trace_request("rag_query", query=req.query_text) as trace:
-            index, db, qp, session_pair, effective_scope = self._load_components(req)
-            retrieve_k = max(req.top_k, 20) if req.use_rerank else req.top_k
-
-            with self.observer.trace_step(trace, "retrieval", {"top_k": retrieve_k}) as s:
-                t_retrieval = time.perf_counter()
-                if effective_scope == "session" and session_pair is not None:
-                    s_index, s_db = session_pair
-                    fused = self._retrieve(
-                        req.query_text,
-                        s_index,
-                        s_db,
-                        qp,
-                        top_k=retrieve_k,
-                        collection_name=req.session_collection_name or COLLECTION_NAME,
-                    )
-                elif effective_scope == "both" and session_pair is not None:
-                    global_results = self._retrieve(req.query_text, index, db, qp, top_k=retrieve_k)
-                    s_index, s_db = session_pair
-                    session_results = self._retrieve(
-                        req.query_text,
-                        s_index,
-                        s_db,
-                        qp,
-                        top_k=retrieve_k,
-                        collection_name=req.session_collection_name or COLLECTION_NAME,
-                    )
-                    fused = self._dedup_results(global_results + session_results, retrieve_k)
-                else:
-                    fused = self._retrieve(req.query_text, index, db, qp, top_k=retrieve_k)
-                step_latencies["retrieval"] = (time.perf_counter() - t_retrieval) * 1000.0
-                s["chunks_retrieved"] = len(fused)
-
-            ranked: List[RankedResult] | None = None
-            docs_for_gen: List[RetrievalResult] | List[RankedResult]
-            display_items: List[RetrievalResult]
-
-            if req.use_rerank:
-                with self.observer.trace_step(trace, "reranking", {"input_chunks": len(fused)}) as s:
-                    t_rerank = time.perf_counter()
-                    try:
-                        reranker = CrossEncoderReranker(
-                            model_name=req.reranker_model or self.cfg.reranker.model,
-                            batch_size=self.cfg.reranker.batch_size,
-                            score_threshold=self.cfg.reranker.score_threshold,
-                        )
-                        ranked = reranker.rerank(req.query_text, fused, top_k=req.top_k)
-                    except Exception as exc:
-                        # Keep query path available even when model download/init fails.
-                        logger.warning("Reranker unavailable; falling back to retrieval order: %s", exc)
-                        ranked = None
-                    step_latencies["reranking"] = (time.perf_counter() - t_rerank) * 1000.0
-                    if ranked is not None:
-                        docs_for_gen = ranked
-                        display_items = [r.result for r in ranked]
-                        s["output_chunks"] = len(ranked)
-                    else:
-                        docs_for_gen = fused[: req.top_k]
-                        display_items = list(docs_for_gen)
-                        s["output_chunks"] = len(display_items)
-                        s["fallback"] = "retrieval_order"
-            else:
-                docs_for_gen = fused[: req.top_k]
-                display_items = list(docs_for_gen)
-                step_latencies["reranking"] = 0.0
+            docs_for_gen, display_items = self._retrieve_docs_for_query(req, trace, step_latencies)
+            qp = QueryProcessor()
 
             if not req.use_llm:
                 return QueryResponse(
@@ -294,8 +420,7 @@ class RAGOrchestrator:
             )
 
             with self.observer.trace_step(
-                trace, "generation",
-                {"provider": selection.provider, "model": selection.model}
+                trace, "generation", {"provider": selection.provider, "model": selection.model}
             ) as s:
                 t_gen = time.perf_counter()
                 if req.stream:
@@ -311,11 +436,9 @@ class RAGOrchestrator:
                         buf.append(piece)
                     full = self.response_processor.format_response("".join(buf))
                     opt = self.context_optimizer.optimize_context(req.query_text, docs_for_gen)
-                    raw_citations = self.citation_tracker.map_citations(full, opt.documents)
-                    citations = self.citation_verifier.verify(full, raw_citations, opt.documents)
                     gen_result = GenerationResult(
                         response_text=full,
-                        citations=citations,
+                        citations=[],
                         model_name=selection.model,
                         latency_ms=(time.perf_counter() - t0) * 1000.0,
                         streamed=True,
@@ -332,42 +455,22 @@ class RAGOrchestrator:
                         model=selection.model,
                         provider_api_key=req.provider_api_key,
                     )
-                    docs = gen_result.optimized_context.documents if gen_result.optimized_context else []
-                    tracked = self.citation_tracker.map_citations(gen_result.response_text, docs)
-                    gen_result.citations = self.citation_verifier.verify(gen_result.response_text, tracked, docs)
 
                 step_latencies["generation"] = (time.perf_counter() - t_gen) * 1000.0
                 s["latency_ms"] = step_latencies["generation"]
 
-            val = generator.validate_response(
-                gen_result.response_text,
-                gen_result.optimized_context or self.context_optimizer.optimize_context(req.query_text, docs_for_gen),
+            val, truthfulness = self._finalize_generation_pipeline(
+                req,
+                selection,
+                key,
+                gen_result,
+                docs_for_gen,
+                display_items,
+                generator,
+                trace,
+                step_latencies,
+                t0,
             )
-            self.cache.set(key, gen_result)
-
-            with self.observer.trace_step(trace, "citation_verification") as s:
-                t_cit = time.perf_counter()
-                truthfulness: Optional[TruthfulnessResult] = None
-                scorer = self._get_truthfulness_scorer()
-                if scorer is not None and gen_result.response_text.strip():
-                    ctx = gen_result.optimized_context or self.context_optimizer.optimize_context(
-                        req.query_text,
-                        docs_for_gen,
-                    )
-                    source_texts = [str(d.get("text", "")) for d in ctx.documents if d.get("text")]
-                    try:
-                        truthfulness = scorer.score(
-                            gen_result.response_text,
-                            source_texts,
-                            gen_result.citations,
-                        )
-                    except Exception:
-                        pass  # never let truthfulness scoring break a response
-                step_latencies["citation_verification"] = (time.perf_counter() - t_cit) * 1000.0
-                s["citations_count"] = len(gen_result.citations)
-                if truthfulness:
-                    s["nli_faithfulness"] = truthfulness.nli_faithfulness
-                    s["citation_groundedness"] = truthfulness.citation_groundedness
 
         self.observer.flush_async()
 
@@ -384,66 +487,170 @@ class RAGOrchestrator:
             step_latencies=step_latencies,
         )
 
-    def stream(self, req: QueryRequest):
-        selection = self.provider_router.resolve_selection(
+    def stream(self, req: QueryRequest) -> Iterator[str]:
+        """Yields raw LLM tokens after retrieval. Does not run citations or truthfulness (use StreamingQuerySession)."""
+        with self.observer.trace_request("rag_query", query=req.query_text) as trace:
+            step_latencies: Dict[str, float] = {}
+            docs_for_gen, _ = self._retrieve_docs_for_query(req, trace, step_latencies)
+            if not req.use_llm:
+                return
+            qp = QueryProcessor()
+            query_type = PromptManager.intent_to_query_type(qp.process_query(req.query_text).intent)
+            selection = self.provider_router.resolve_selection(
+                req.provider,
+                req.model or os.environ.get("OLLAMA_QUERY_MODEL"),
+                has_api_key_override=bool((req.provider_api_key or "").strip()),
+            )
+            generator = RAGGenerator(
+                model_name=selection.model,
+                provider=selection.provider,
+                prompt_manager=self.prompt_manager,
+                context_optimizer=self.context_optimizer,
+                provider_router=self.provider_router,
+            )
+            yield from generator.generate_stream(
+                req.query_text,
+                docs_for_gen,
+                query_type=query_type,
+                provider=selection.provider,
+                model=selection.model,
+                provider_api_key=req.provider_api_key,
+            )
+        self.observer.flush_async()
+
+
+class StreamingQuerySession:
+    """Single retrieval + single generation stream, then finalize citations/truthfulness on the same buffer."""
+
+    def __init__(self, orchestrator: RAGOrchestrator, req: QueryRequest) -> None:
+        self._o = orchestrator
+        self._req = req
+        self._t0 = time.perf_counter()
+        self._step_latencies: Dict[str, float] = {}
+        self._buf: List[str] = []
+        self._selection = orchestrator.provider_router.resolve_selection(
             req.provider,
             req.model or os.environ.get("OLLAMA_QUERY_MODEL"),
             has_api_key_override=bool((req.provider_api_key or "").strip()),
         )
-        index, db, qp, session_pair, effective_scope = self._load_components(req)
-        retrieve_k = max(req.top_k, 20) if req.use_rerank else req.top_k
-        if effective_scope == "session" and session_pair is not None:
-            s_index, s_db = session_pair
-            fused = self._retrieve(
-                req.query_text,
-                s_index,
-                s_db,
-                qp,
-                top_k=retrieve_k,
-                collection_name=req.session_collection_name or COLLECTION_NAME,
-            )
-        elif effective_scope == "both" and session_pair is not None:
-            global_results = self._retrieve(req.query_text, index, db, qp, top_k=retrieve_k)
-            s_index, s_db = session_pair
-            session_results = self._retrieve(
-                req.query_text,
-                s_index,
-                s_db,
-                qp,
-                top_k=retrieve_k,
-                collection_name=req.session_collection_name or COLLECTION_NAME,
-            )
-            fused = self._dedup_results(global_results + session_results, retrieve_k)
-        else:
-            fused = self._retrieve(req.query_text, index, db, qp, top_k=retrieve_k)
-        if req.use_rerank:
-            try:
-                reranker = CrossEncoderReranker(
-                    model_name=req.reranker_model or self.cfg.reranker.model,
-                    batch_size=self.cfg.reranker.batch_size,
-                    score_threshold=self.cfg.reranker.score_threshold,
-                )
-                ranked = reranker.rerank(req.query_text, fused, top_k=req.top_k)
-                docs_for_gen: List[RetrievalResult] | List[RankedResult] = ranked
-            except Exception as exc:
-                logger.warning("Reranker unavailable in stream; falling back to retrieval order: %s", exc)
-                docs_for_gen = fused[: req.top_k]
-        else:
-            docs_for_gen = fused[: req.top_k]
+        self._key = orchestrator._make_cache_key(req, self._selection)
+        self._cached = orchestrator.cache.get(self._key) if req.use_llm else None
+        self._trace_cm: Any = None
+        self._trace: Any = None
+        self._docs_for_gen: Union[List[RetrievalResult], List[RankedResult], None] = None
+        self._display_items: Optional[List[RetrievalResult]] = None
 
-        query_type = PromptManager.intent_to_query_type(qp.process_query(req.query_text).intent)
-        generator = RAGGenerator(
-            model_name=selection.model,
-            provider=selection.provider,
-            prompt_manager=self.prompt_manager,
-            context_optimizer=self.context_optimizer,
-            provider_router=self.provider_router,
+    def __enter__(self) -> StreamingQuerySession:
+        self._trace_cm = self._o.observer.trace_request("rag_query", query=self._req.query_text)
+        self._trace = self._trace_cm.__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        try:
+            if self._trace_cm is not None:
+                self._trace_cm.__exit__(exc_type, exc, tb)
+        finally:
+            self._o.observer.flush_async()
+
+    def iter_tokens(self) -> Iterator[str]:
+        if not self._req.use_llm:
+            yield from ()
+            return
+        if self._cached is not None:
+            text = self._cached.response_text
+            chunk = 48
+            for i in range(0, len(text), chunk):
+                yield text[i : i + chunk]
+            return
+        self._docs_for_gen, self._display_items = self._o._retrieve_docs_for_query(
+            self._req, self._trace, self._step_latencies
         )
-        yield from generator.generate_stream(
-            req.query_text,
-            docs_for_gen,
-            query_type=query_type,
-            provider=selection.provider,
-            model=selection.model,
-            provider_api_key=req.provider_api_key,
+        qp = QueryProcessor()
+        query_type = PromptManager.intent_to_query_type(qp.process_query(self._req.query_text).intent)
+        generator = RAGGenerator(
+            model_name=self._selection.model,
+            provider=self._selection.provider,
+            prompt_manager=self._o.prompt_manager,
+            context_optimizer=self._o.context_optimizer,
+            provider_router=self._o.provider_router,
+        )
+        with self._o.observer.trace_step(
+            self._trace,
+            "generation",
+            {"provider": self._selection.provider, "model": self._selection.model},
+        ) as s:
+            t_gen = time.perf_counter()
+            for piece in generator.generate_stream(
+                self._req.query_text,
+                self._docs_for_gen,
+                query_type=query_type,
+                provider=self._selection.provider,
+                model=self._selection.model,
+                provider_api_key=self._req.provider_api_key,
+            ):
+                self._buf.append(piece)
+                yield piece
+            self._step_latencies["generation"] = (time.perf_counter() - t_gen) * 1000.0
+            s["latency_ms"] = self._step_latencies["generation"]
+
+    def finalize(self) -> QueryResponse:
+        if not self._req.use_llm:
+            if self._display_items is None:
+                self._docs_for_gen, self._display_items = self._o._retrieve_docs_for_query(
+                    self._req, self._trace, self._step_latencies
+                )
+            return QueryResponse(
+                query=self._req.query_text,
+                provider=self._selection.provider,
+                model=self._selection.model,
+                retrieved=self._display_items or [],
+                processing_time_ms=(time.perf_counter() - self._t0) * 1000.0,
+                step_latencies=self._step_latencies,
+            )
+        if self._cached is not None:
+            return self._o._response_from_cache(
+                self._req, self._selection, self._cached, self._cached.latency_ms
+            )
+        assert self._docs_for_gen is not None and self._display_items is not None
+        full = self._o.response_processor.format_response("".join(self._buf))
+        opt = self._o.context_optimizer.optimize_context(self._req.query_text, self._docs_for_gen)
+        gen_result = GenerationResult(
+            response_text=full,
+            citations=[],
+            model_name=self._selection.model,
+            latency_ms=(time.perf_counter() - self._t0) * 1000.0,
+            streamed=True,
+            optimized_context=opt,
+            provider=self._selection.provider,
+        )
+        generator = RAGGenerator(
+            model_name=self._selection.model,
+            provider=self._selection.provider,
+            prompt_manager=self._o.prompt_manager,
+            context_optimizer=self._o.context_optimizer,
+            provider_router=self._o.provider_router,
+        )
+        val, truthfulness = self._o._finalize_generation_pipeline(
+            self._req,
+            self._selection,
+            self._key,
+            gen_result,
+            self._docs_for_gen,
+            self._display_items,
+            generator,
+            self._trace,
+            self._step_latencies,
+            self._t0,
+        )
+        return QueryResponse(
+            query=self._req.query_text,
+            provider=self._selection.provider,
+            model=self._selection.model,
+            answer=gen_result.response_text,
+            citations=gen_result.citations if self._req.include_citations else [],
+            retrieved=self._display_items,
+            processing_time_ms=(time.perf_counter() - self._t0) * 1000.0,
+            validation_issues=val.issues,
+            truthfulness=truthfulness,
+            step_latencies=self._step_latencies,
         )

@@ -18,7 +18,9 @@ def cache_key(
     use_rerank: bool = True,
     reranker_model: str = "",
     corpus_fingerprint: str = "documents",
+    response_mode: str = "sync",
 ) -> str:
+    """response_mode distinguishes streaming vs non-streaming cache entries (must not collide)."""
     raw = "\n".join(
         [
             query,
@@ -28,6 +30,7 @@ def cache_key(
             str(use_rerank),
             reranker_model,
             corpus_fingerprint,
+            response_mode,
         ]
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()

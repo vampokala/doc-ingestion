@@ -79,15 +79,24 @@ def test_query_requires_api_key_when_enabled():
 
 
 def test_query_stream_endpoint(monkeypatch):
-    def _fake_stream(_req):
-        yield "hello "
-        yield "world"
+    class FakeStreamingSession:
+        def __init__(self, _orch, _req):
+            pass
 
-    def _fake_run(_req):
-        return QueryResponse(query="q", provider="ollama", model="qwen2.5:7b", citations=[])
+        def __enter__(self):
+            return self
 
-    monkeypatch.setattr(api_main._orchestrator, "stream", _fake_stream)
-    monkeypatch.setattr(api_main._orchestrator, "run", _fake_run)
+        def __exit__(self, *_args):
+            return None
+
+        def iter_tokens(self):
+            yield "hello "
+            yield "world"
+
+        def finalize(self):
+            return QueryResponse(query="q", provider="ollama", model="qwen2.5:7b", citations=[])
+
+    monkeypatch.setattr(api_main, "StreamingQuerySession", FakeStreamingSession)
     api_main._cfg.api.auth_enabled = False
     client = TestClient(app)
     res = client.post("/query/stream", json={"query": "hello", "stream": True})

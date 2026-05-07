@@ -92,9 +92,11 @@ export function QueryTab() {
 
   const [prevProvider, setPrevProvider] = useState(provider)
   const [providerApiKeyDraft, setProviderApiKeyDraft] = useState<string | null>(null)
+  const [useCustomProviderKey, setUseCustomProviderKey] = useState(false)
   if (provider !== prevProvider) {
     setPrevProvider(provider)
     setProviderApiKeyDraft(null)
+    setUseCustomProviderKey(false)
   }
   const providerApiKey = providerApiKeyDraft ?? baselineApiKey
   const [rememberProviderKey, setRememberProviderKey] = useState(true)
@@ -123,7 +125,7 @@ export function QueryTab() {
   const modelOptions = llmConfig && provider ? llmConfig.allowed_models_by_provider[provider] ?? [] : []
   const serverProviderKeyConfigured = !!(llmConfig && provider && llmConfig.provider_key_configured?.[provider])
   const isDemoMode = !!llmConfig?.demo_mode
-  const needsProviderKey = provider !== '' && provider !== 'ollama' && !serverProviderKeyConfigured
+  const needsProviderKey = provider !== '' && provider !== 'ollama' && !serverProviderKeyConfigured && !isDemoMode
 
   const submit = async () => {
     const trimmed = queryText.trim()
@@ -135,7 +137,8 @@ export function QueryTab() {
       setMessage('Select a provider and model.')
       return
     }
-    if (needsProviderKey && !providerApiKey.trim()) {
+    const effectiveProviderKey = useCustomProviderKey ? providerApiKey : ''
+    if (needsProviderKey && !effectiveProviderKey.trim()) {
       setMessage(`No server key is configured for ${provider}. Paste your ${provider} API key to continue.`)
       return
     }
@@ -145,11 +148,11 @@ export function QueryTab() {
       return
     }
 
-    if (rememberProviderKey && needsProviderKey && providerApiKey.trim()) {
+    if (rememberProviderKey && needsProviderKey && effectiveProviderKey.trim()) {
       localStorage.setItem(`${PROVIDER_KEY_PREFIX}${provider}`, providerApiKey.trim())
     }
 
-    const request = buildRequest(trimmed, sessionId, scope, provider, model, providerApiKey)
+    const request = buildRequest(trimmed, sessionId, scope, provider, model, effectiveProviderKey)
     answerRef.current = ''
     setStreamingText('')
     setResponse(null)
@@ -250,7 +253,7 @@ export function QueryTab() {
           <p className="text-sm text-slate-600">{llmConfigLoading ? 'Loading model options…' : null}</p>
         )}
 
-        {provider !== '' && provider !== 'ollama' ? (
+        {provider !== '' && provider !== 'ollama' && !isDemoMode ? (
           <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-slate-700">
@@ -286,6 +289,48 @@ export function QueryTab() {
               />
               Remember in this browser
             </label>
+          </div>
+        ) : null}
+        {provider !== '' && provider !== 'ollama' && isDemoMode ? (
+          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs text-slate-600">
+              Demo mode uses server-side provider secrets by default.
+            </p>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={useCustomProviderKey}
+                onChange={(e) => setUseCustomProviderKey(e.target.checked)}
+              />
+              Use my own API key for this provider
+            </label>
+            {useCustomProviderKey ? (
+              <>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-slate-700">
+                    {provider}
+                    {' '}
+                    API key
+                  </span>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    className="w-full rounded-xl border border-slate-300 bg-white p-3 text-slate-900 shadow-sm"
+                    placeholder="Optional override: paste your key for this request"
+                    value={providerApiKey}
+                    onChange={(e) => setProviderApiKeyDraft(e.target.value)}
+                  />
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={rememberProviderKey}
+                    onChange={(e) => setRememberProviderKey(e.target.checked)}
+                  />
+                  Remember in this browser
+                </label>
+              </>
+            ) : null}
           </div>
         ) : null}
 
