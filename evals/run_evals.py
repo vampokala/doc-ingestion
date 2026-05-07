@@ -6,7 +6,8 @@ Runs a golden dataset through the live RAG pipeline and computes:
   - context_precision (retrieved chunk P@K vs ground-truth contexts)
   - context_recall (retrieved chunk R@K vs ground-truth contexts)
   - answer_correctness (ROUGE-L against ground-truth reference)
-  - citation_rate (fraction of answers with at least one verified citation)
+  - citation_rate (fraction of answers with at least one supported citation)
+  - citation_resolution_rate (fraction of answers with at least one resolved citation marker)
   - mean_citation_groundedness (average citation verification score)
 
 When ragas>=0.2 and langchain-core are installed (requirements/eval.txt),
@@ -253,6 +254,11 @@ def answer_correctness_rouge(answer: str, reference: str) -> float:
 
 
 def citation_rate(citations: List[Dict[str, Any]]) -> float:
+    supported = [c for c in citations if str(c.get("verification", "")).lower() == "supported"]
+    return 1.0 if supported else 0.0
+
+
+def citation_resolution_rate(citations: List[Dict[str, Any]]) -> float:
     resolved = [c for c in citations if c.get("resolved")]
     return 1.0 if resolved else 0.0
 
@@ -305,15 +311,16 @@ def _retrieved_dicts_to_nli_sources(
     *,
     max_context_tokens: int,
     tokenizer_name: str,
-) -> List[str]:
+) -> tuple[List[str], str]:
     """Match inline `/query` truthfulness: NLI over context-optimizer output, not raw top-k chunks."""
     if not retrieved_chunks:
-        return []
+        return [], "empty"
     try:
         from src.core.context_optimizer import ContextOptimizer
         from src.core.retrieval_result import RetrievalResult
-    except ImportError:
-        return [str(r.get("text", r.get("preview", ""))) for r in retrieved_chunks]
+    except ImportError as exc:
+        logger.warning("Context optimizer import failed; using raw retrieved chunks for NLI: %s", exc)
+        return [str(r.get("text", r.get("preview", ""))) for r in retrieved_chunks], "raw_fallback_import_error"
 
     wrapped = [
         RetrievalResult(
@@ -328,7 +335,11 @@ def _retrieved_dicts_to_nli_sources(
         max_context_tokens=max_context_tokens,
         tokenizer_name=tokenizer_name,
     ).optimize_context(question, wrapped)
-    return [str(d.get("text", "")) for d in opt.documents if d.get("text")]
+    optimized = [str(d.get("text", "")) for d in opt.documents if d.get("text")]
+    if not optimized:
+        logger.warning("Context optimizer produced empty docs; using raw retrieved chunks for NLI")
+        return [str(r.get("text", r.get("preview", ""))) for r in retrieved_chunks], "raw_fallback_empty_optimized"
+    return optimized, "optimized"
 
 
 def evaluate_dataset(
@@ -365,14 +376,18 @@ def evaluate_dataset(
                 from src.utils.config import load_config
 
                 _cfg = load_config("config.yaml")
-                nli_source_texts = _retrieved_dicts_to_nli_sources(
+                nli_source_texts, nli_source_mode = _retrieved_dicts_to_nli_sources(
                     question,
                     retrieved_chunks,
                     max_context_tokens=_cfg.context.max_tokens,
                     tokenizer_name=_cfg.context.tokenizer,
-                ) or retrieved_texts
-            except Exception:
+                )
+            except Exception as exc:
+                logger.warning("NLI source parity fallback to raw chunks: %s", exc)
                 nli_source_texts = retrieved_texts
+                nli_source_mode = "raw_fallback_exception"
+        else:
+            nli_source_mode = "raw_default"
 
         # Core metrics
         row: Dict[str, Any] = {
@@ -384,8 +399,10 @@ def evaluate_dataset(
             "context_recall": round(context_recall(retrieved_texts, reference_contexts), 3),
             "answer_correctness_rouge": round(answer_correctness_rouge(answer, reference), 3),
             "citation_rate": citation_rate(citations),
+            "citation_resolution_rate": citation_resolution_rate(citations),
             "mean_citation_groundedness": round(mean_citation_groundedness(citations), 3),
         }
+        row["nli_source_mode"] = nli_source_mode
 
         # Inline faithfulness (NLI-based)
         if faithfulness_scorer is not None and answer.strip():
@@ -393,6 +410,9 @@ def evaluate_dataset(
                 t_result = faithfulness_scorer.score(answer, nli_source_texts, citations)
                 row["nli_faithfulness"] = t_result.nli_faithfulness
                 row["truthfulness_score"] = t_result.score
+                row["score"] = t_result.score
+                row["citation_groundedness"] = t_result.citation_groundedness
+                row["uncited_claims"] = t_result.uncited_claims
             except Exception as exc:
                 logger.debug("NLI faithfulness error: %s", exc)
 
@@ -415,6 +435,7 @@ def aggregate(results: List[Dict[str, Any]]) -> Dict[str, float]:
         "answer_correctness_rouge",
         "citation_rate",
         "mean_citation_groundedness",
+        "citation_resolution_rate",
         "nli_faithfulness",
         "truthfulness_score",
         "ragas_faithfulness",
@@ -494,6 +515,11 @@ def main() -> int:
     parser.add_argument("--output", default="evals/reports", help="Output directory for reports")
     parser.add_argument("--mock", action="store_true", help="Use mock pipeline (no LLM required)")
     parser.add_argument("--no-nli", action="store_true", help="Skip NLI faithfulness scoring")
+    parser.add_argument(
+        "--force-nli",
+        action="store_true",
+        help="Run offline NLI even when evaluation.inline_enabled is false",
+    )
     parser.add_argument("--faithfulness-threshold", type=float, default=0.5, help="Min mean NLI faithfulness")
     parser.add_argument("--correctness-threshold", type=float, default=0.2, help="Min mean answer_correctness_rouge")
     args = parser.parse_args()
@@ -527,10 +553,15 @@ def main() -> int:
     faithfulness_scorer = None
     if not args.no_nli:
         try:
+            from src.utils.config import load_config
             from src.evaluation.truthfulness import TruthfulnessScorer
 
-            faithfulness_scorer = TruthfulnessScorer()
-            logger.info("NLI faithfulness scorer loaded")
+            cfg = load_config("config.yaml")
+            if cfg.evaluation.inline_enabled or args.force_nli:
+                faithfulness_scorer = TruthfulnessScorer()
+                logger.info("NLI faithfulness scorer loaded")
+            else:
+                logger.info("Skipping NLI scorer because evaluation.inline_enabled=false (use --force-nli to override)")
         except Exception as exc:
             logger.warning("NLI scorer unavailable: %s", exc)
 

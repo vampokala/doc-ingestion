@@ -3,6 +3,7 @@ from src.api import main as api_main
 from src.api.main import app
 from src.core.rag_orchestrator import QueryResponse
 from src.core.retrieval_result import RetrievalResult
+from src.evaluation.truthfulness import TruthfulnessResult
 
 
 def test_health_endpoint():
@@ -79,6 +80,8 @@ def test_query_requires_api_key_when_enabled():
 
 
 def test_query_stream_endpoint(monkeypatch):
+    captured = {}
+
     class FakeStreamingSession:
         def __init__(self, _orch, _req):
             pass
@@ -94,14 +97,44 @@ def test_query_stream_endpoint(monkeypatch):
             yield "world"
 
         def finalize(self):
-            return QueryResponse(query="q", provider="ollama", model="qwen2.5:7b", citations=[])
+            return QueryResponse(
+                query="q",
+                provider="ollama",
+                model="qwen2.5:7b",
+                citations=[],
+                processing_time_ms=12.0,
+                cached=False,
+                validation_issues=[],
+                truthfulness=TruthfulnessResult(
+                    nli_faithfulness=0.8,
+                    citation_groundedness=0.7,
+                    uncited_claims=1,
+                    score=0.76,
+                ),
+                step_latencies={
+                    "retrieval": 1.0,
+                    "reranking": 2.0,
+                    "generation": 3.0,
+                    "citation_verification": 4.0,
+                    "truthfulness_scoring": 5.0,
+                },
+            )
 
     monkeypatch.setattr(api_main, "StreamingQuerySession", FakeStreamingSession)
+    monkeypatch.setattr(
+        api_main._metrics_collector,
+        "record_request",
+        lambda metrics: captured.setdefault("metrics", metrics),
+    )
     api_main._cfg.api.auth_enabled = False
     client = TestClient(app)
     res = client.post("/query/stream", json={"query": "hello", "stream": True})
     assert res.status_code == 200
     assert "token" in res.text
+    assert '"processing_time_ms": 12.0' in res.text
+    assert '"cached": false' in res.text
+    assert "metrics" in captured
+    assert captured["metrics"].truthfulness_latency_ms == 5.0
 
 
 def test_rate_limit_uses_redis_when_available(monkeypatch):

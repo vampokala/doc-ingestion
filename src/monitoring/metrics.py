@@ -29,11 +29,11 @@ class RequestMetrics:
 
     request_id: str
     total_latency_ms: float
-    retrieval_latency_ms: float
-    reranking_latency_ms: float
-    generation_latency_ms: float
-    citation_latency_ms: float
-    truthfulness_latency_ms: float
+    retrieval_latency_ms: Optional[float]
+    reranking_latency_ms: Optional[float]
+    generation_latency_ms: Optional[float]
+    citation_latency_ms: Optional[float]
+    truthfulness_latency_ms: Optional[float]
 
     # Cost
     cost_usd: float
@@ -43,6 +43,7 @@ class RequestMetrics:
     nli_faithfulness: float
     uncited_claims: int
     timestamp: str
+    cached: bool = False
 
 
 class MetricsCollector:
@@ -58,7 +59,7 @@ class MetricsCollector:
     def __init__(self, window_size: int = 1000):
         self.window_size = window_size
         self.metrics: deque = deque(maxlen=window_size)
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
     def record_request(self, metrics: RequestMetrics):
         """Record a completed request's metrics."""
@@ -106,10 +107,17 @@ class MetricsCollector:
             latency_p99 = self.get_percentile("total_latency_ms", 99)
 
             # Step-wise latencies (average)
-            retrieval_avg = sum(m.retrieval_latency_ms for m in metrics_list) / n
-            reranking_avg = sum(m.reranking_latency_ms for m in metrics_list) / n
-            generation_avg = sum(m.generation_latency_ms for m in metrics_list) / n
-            citation_avg = sum(m.citation_latency_ms for m in metrics_list) / n
+            def _avg_optional(field: str) -> float:
+                vals = [getattr(m, field) for m in metrics_list if getattr(m, field) is not None]
+                if not vals:
+                    return 0.0
+                return sum(vals) / len(vals)
+
+            retrieval_avg = _avg_optional("retrieval_latency_ms")
+            reranking_avg = _avg_optional("reranking_latency_ms")
+            generation_avg = _avg_optional("generation_latency_ms")
+            citation_avg = _avg_optional("citation_latency_ms")
+            truthfulness_avg = _avg_optional("truthfulness_latency_ms")
 
             # Cost
             cost_total = sum(m.cost_usd for m in metrics_list)
@@ -132,16 +140,23 @@ class MetricsCollector:
             )
 
             # Breakdown percentages
-            total_step_latency = retrieval_avg + reranking_avg + generation_avg + citation_avg
+            total_step_latency = retrieval_avg + reranking_avg + generation_avg + citation_avg + truthfulness_avg
             if total_step_latency > 0:
                 breakdown_pct = {
                     "retrieval": round(retrieval_avg / total_step_latency * 100, 1),
                     "reranking": round(reranking_avg / total_step_latency * 100, 1),
                     "generation": round(generation_avg / total_step_latency * 100, 1),
                     "citation": round(citation_avg / total_step_latency * 100, 1),
+                    "truthfulness": round(truthfulness_avg / total_step_latency * 100, 1),
                 }
             else:
-                breakdown_pct = {"retrieval": 0.0, "reranking": 0.0, "generation": 0.0, "citation": 0.0}
+                breakdown_pct = {
+                    "retrieval": 0.0,
+                    "reranking": 0.0,
+                    "generation": 0.0,
+                    "citation": 0.0,
+                    "truthfulness": 0.0,
+                }
 
             return {
                 "summary": {
@@ -157,6 +172,7 @@ class MetricsCollector:
                     "reranking_avg_ms": round(reranking_avg, 2),
                     "generation_avg_ms": round(generation_avg, 2),
                     "citation_avg_ms": round(citation_avg, 2),
+                    "truthfulness_avg_ms": round(truthfulness_avg, 2),
                     "breakdown_pct": breakdown_pct,
                 },
                 "cost": {
