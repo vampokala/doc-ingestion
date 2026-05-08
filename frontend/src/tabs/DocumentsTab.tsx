@@ -4,7 +4,7 @@ import { Uploader } from '../components/Uploader'
 import { formatBytes, formatTtl } from '../lib/format'
 import { useSession } from '../session/SessionContext'
 
-export function DocumentsTab() {
+export function DocumentsTab({ onOpenUploadFaq }: { onOpenUploadFaq?: () => void }) {
   const { sessionId, summary, expiresAt, refreshSession, clearSession, isMintingSession } = useSession()
   const usedBytes = summary?.total_bytes ?? 0
   const maxBytes = summary?.max_session_bytes ?? 8 * 1024 * 1024
@@ -59,6 +59,16 @@ export function DocumentsTab() {
 
       {sessionId ? (
         <section className="app-card p-5">
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
+            <span>Need help choosing chunking strategy or embedding profile?</span>
+            <button
+              type="button"
+              className="font-semibold underline"
+              onClick={() => onOpenUploadFaq?.()}
+            >
+              Read Upload FAQ
+            </button>
+          </div>
           <Uploader sessionId={sessionId} summary={summary} onUploaded={refreshSession} />
         </section>
       ) : null}

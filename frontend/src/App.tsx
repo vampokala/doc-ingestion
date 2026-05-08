@@ -1,10 +1,11 @@
 import * as Tabs from '@radix-ui/react-tabs'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AlertCircle, BookOpen, Database, FileText, Fingerprint } from 'lucide-react'
-import { useMemo } from 'react'
+import { AlertCircle, BookOpen, CircleHelp, Database, FileText, Fingerprint } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { QueryTab } from './tabs/QueryTab'
 import { OverviewTab } from './tabs/OverviewTab'
 import { DocumentsTab } from './tabs/DocumentsTab'
+import { UploadFaqTab } from './tabs/UploadFaqTab'
 import { SessionProvider } from './session/SessionProvider'
 import { useSession } from './session/SessionContext'
 import { formatTtl, shortSessionId } from './lib/format'
@@ -12,6 +13,7 @@ import { formatTtl, shortSessionId } from './lib/format'
 function Shell() {
   const { sessionId, expiresAt, error, retrySession, isMintingSession, isLoading, clearSession } =
     useSession()
+  const [activeTab, setActiveTab] = useState('overview')
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 md:px-8">
@@ -63,7 +65,7 @@ function Shell() {
           ) : null}
         </header>
 
-        <Tabs.Root defaultValue="overview" className="space-y-5">
+        <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="space-y-5">
           <Tabs.List className="app-card inline-flex gap-2 p-2" aria-label="Main sections">
             <Tabs.Trigger
               value="overview"
@@ -86,6 +88,13 @@ function Shell() {
               <FileText className="h-4 w-4" aria-hidden="true" />
               My documents
             </Tabs.Trigger>
+            <Tabs.Trigger
+              value="upload-faq"
+              className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-slate-700 data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+            >
+              <CircleHelp className="h-4 w-4" aria-hidden="true" />
+              Upload FAQ
+            </Tabs.Trigger>
           </Tabs.List>
           <Tabs.Content value="overview">
             <OverviewTab />
@@ -94,7 +103,10 @@ function Shell() {
             <QueryTab />
           </Tabs.Content>
           <Tabs.Content value="documents">
-            <DocumentsTab />
+            <DocumentsTab onOpenUploadFaq={() => setActiveTab('upload-faq')} />
+          </Tabs.Content>
+          <Tabs.Content value="upload-faq">
+            <UploadFaqTab />
           </Tabs.Content>
         </Tabs.Root>
       </div>
