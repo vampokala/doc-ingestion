@@ -5,7 +5,7 @@ import { CitationsList } from '../components/CitationsList'
 import { RetrievedChunks } from '../components/RetrievedChunks'
 import { SamplePromptChips } from '../components/SamplePromptChips'
 import { ScopeToggle } from '../components/ScopeToggle'
-import { queryDocuments, fetchLlmConfig } from '../api/client'
+import { queryDocuments, fetchLlmConfig, fetchRuntimeConfig } from '../api/client'
 import type { KnowledgeScope, QueryRequestModel, QueryResponseModel } from '../api/generated'
 import { streamQuery } from '../lib/streamQuery'
 import { useSession } from '../session/SessionContext'
@@ -19,6 +19,7 @@ function buildRequest(
   provider: string,
   model: string,
   providerApiKey: string,
+  embeddingProfile: string,
 ): QueryRequestModel {
   const trimmedKey = providerApiKey.trim()
   return {
@@ -32,6 +33,7 @@ function buildRequest(
     knowledge_scope: scope,
     provider,
     model,
+    embedding_profile: embeddingProfile,
     ...(trimmedKey ? { provider_api_key: trimmedKey } : {}),
   }
 }
@@ -73,6 +75,12 @@ export function QueryTab() {
 
   const [providerChoice, setProviderChoice] = useState<string | null>(null)
   const [modelChoice, setModelChoice] = useState<string | null>(null)
+  const [embeddingProfileChoice, setEmbeddingProfileChoice] = useState<string | null>(null)
+  const { data: runtimeConfig } = useQuery({
+    queryKey: ['runtime-config'],
+    queryFn: fetchRuntimeConfig,
+    staleTime: Infinity,
+  })
 
   const defaultProvider = llmConfig ? pickDefaultProvider(llmConfig) : ''
   const provider = providerChoice ?? defaultProvider
@@ -82,6 +90,7 @@ export function QueryTab() {
       : llmConfig && provider
         ? pickDefaultModel(llmConfig, provider)
         : ''
+  const embeddingProfile = embeddingProfileChoice ?? runtimeConfig?.embedding_default_profile ?? 'ollama_nomic'
 
   const baselineApiKey = useMemo(() => {
     if (!provider || provider === 'ollama') {
@@ -152,7 +161,7 @@ export function QueryTab() {
       localStorage.setItem(`${PROVIDER_KEY_PREFIX}${provider}`, providerApiKey.trim())
     }
 
-    const request = buildRequest(trimmed, sessionId, scope, provider, model, effectiveProviderKey)
+    const request = buildRequest(trimmed, sessionId, scope, provider, model, effectiveProviderKey, embeddingProfile)
     answerRef.current = ''
     setStreamingText('')
     setResponse(null)
@@ -244,6 +253,21 @@ export function QueryTab() {
                 {modelOptions.map((m) => (
                   <option key={m} value={m}>
                     {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Embedding profile</span>
+              <select
+                className="w-full rounded-xl border border-slate-300 bg-white p-3 text-slate-900 shadow-sm"
+                value={embeddingProfile}
+                onChange={(e) => setEmbeddingProfileChoice(e.target.value)}
+                disabled={!runtimeConfig}
+              >
+                {Object.keys(runtimeConfig?.embedding_profiles ?? {}).map((name) => (
+                  <option key={name} value={name}>
+                    {name}
                   </option>
                 ))}
               </select>

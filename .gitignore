@@ -17,6 +17,10 @@ venv/
 
 # Generated indexes (rebuild with ingest)
 data/embeddings/
+data/documents/
 
 # Eval reports (generated at runtime)
 evals/reports/
+
+# Local project context scratch file
+CLAUDE_PROJECT_CONTEXT.md

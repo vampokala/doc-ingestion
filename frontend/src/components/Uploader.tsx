@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Upload } from 'lucide-react'
-import { uploadDocuments, type SessionSummary, type UploadResult } from '../api/client'
+import { fetchRuntimeConfig, uploadDocuments, type SessionSummary, type UploadResult } from '../api/client'
 import { formatBytes } from '../lib/format'
 
 const ACCEPTED = '.pdf,.docx,.txt,.md,.html'
@@ -31,9 +32,18 @@ export function Uploader({
   const inputRef = useRef<HTMLInputElement>(null)
   const [message, setMessage] = useState('')
   const [results, setResults] = useState<UploadResult[]>([])
+  const [chunkStrategyChoice, setChunkStrategyChoice] = useState<string | null>(null)
+  const [embeddingProfileChoice, setEmbeddingProfileChoice] = useState<string | null>(null)
+  const { data: runtimeConfig } = useQuery({
+    queryKey: ['runtime-config'],
+    queryFn: fetchRuntimeConfig,
+    staleTime: Infinity,
+  })
+  const chunkStrategy = chunkStrategyChoice ?? runtimeConfig?.chunking_default_strategy ?? 'tiktoken'
+  const embeddingProfile = embeddingProfileChoice ?? runtimeConfig?.embedding_default_profile ?? 'ollama_nomic'
 
   const mutation = useMutation({
-    mutationFn: (files: File[]) => uploadDocuments(sessionId, files),
+    mutationFn: (files: File[]) => uploadDocuments(sessionId, files, { chunkStrategy, embeddingProfile }),
     onSuccess: async (response) => {
       setResults(response.results)
       setMessage('Upload finished.')
@@ -93,6 +103,38 @@ export function Uploader({
           {mutation.isPending ? 'Uploading...' : 'Choose files'}
         </button>
       </div>
+      {runtimeConfig ? (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-slate-700">Chunking strategy</span>
+            <select
+              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-slate-900"
+              value={chunkStrategy}
+              onChange={(event) => setChunkStrategyChoice(event.target.value)}
+            >
+              {runtimeConfig.chunking_allowed_strategies.map((strategy) => (
+                <option key={strategy} value={strategy}>
+                  {strategy}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-slate-700">Embedding profile</span>
+            <select
+              className="w-full rounded-lg border border-slate-300 bg-white p-2 text-slate-900"
+              value={embeddingProfile}
+              onChange={(event) => setEmbeddingProfileChoice(event.target.value)}
+            >
+              {Object.keys(runtimeConfig.embedding_profiles).map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
       {message ? <p className="mt-3 text-sm text-slate-700" aria-live="polite">{message}</p> : null}
       {results.length > 0 ? (
         <ul className="mt-3 space-y-2">

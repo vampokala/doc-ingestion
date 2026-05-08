@@ -40,6 +40,8 @@ def ingest(
     bm25_index_path: str = BM25_INDEX_PATH,
     collection_name: str = COLLECTION_NAME,
     chroma_path: str = "data/embeddings/chroma",
+    chunk_strategy: str | None = None,
+    embedding_profile: str | None = None,
     processor: DocumentProcessor | None = None,
 ) -> tuple[BM25Index, VectorDatabase]:
     # ── 1. Config ────────────────────────────────────────────────────────────
@@ -50,15 +52,24 @@ def ingest(
         cfg.overlap,
         cfg.chunk_tokenizer,
     )
+    resolved_chunk_strategy = cfg.chunking.resolve_strategy(chunk_strategy)
+    resolved_embedding_profile_name = cfg.embeddings.resolve_profile_name(embedding_profile)
+    resolved_embedding_profile = cfg.embeddings.resolve_profile(embedding_profile)
 
     # ── 2. Components ─────────────────────────────────────────────────────────
     processor = processor or DocumentProcessor(
         chunk_size=cfg.chunk_size,
         overlap=cfg.overlap,
         tokenizer_name=cfg.chunk_tokenizer,
+        chunk_strategy=resolved_chunk_strategy,
     )
     index = BM25Index()
-    db = VectorDatabase(mode="dev", chroma_path=chroma_path)
+    db = VectorDatabase(
+        mode="dev",
+        chroma_path=chroma_path,
+        embedding_profile_name=resolved_embedding_profile_name,
+        embedding_profile=resolved_embedding_profile,
+    )
     db.create_collection(collection_name)
 
     # ── 3. Process files ──────────────────────────────────────────────────────
@@ -91,7 +102,13 @@ def ingest(
 
         # Vector DB indexing
         vector_docs = [
-            {"id": f"{os.path.basename(file_path)}__chunk{i}", "text": chunk, **metadata}
+            {
+                "id": f"{os.path.basename(file_path)}__chunk{i}",
+                "text": chunk,
+                "chunk_strategy": resolved_chunk_strategy,
+                "embedding_profile": resolved_embedding_profile_name,
+                **metadata,
+            }
             for i, chunk in enumerate(chunks)
         ]
         with track_duration("vector_indexing", logger):
@@ -152,13 +169,19 @@ def main() -> None:
     parser.add_argument("--docs", required=True, help="Path to a file or folder to ingest")
     parser.add_argument("--query", default=None, help="Optional query to run after ingestion")
     parser.add_argument("--top-k", type=int, default=3, help="Number of results to return")
+    parser.add_argument("--chunk-strategy", default=None, help="Chunking strategy override")
+    parser.add_argument("--embedding-profile", default=None, help="Embedding profile override")
     args = parser.parse_args()
 
     if not os.path.exists(args.docs):
         print(f"Error: path not found: {args.docs}", file=sys.stderr)
         sys.exit(1)
 
-    index, db = ingest(args.docs)
+    index, db = ingest(
+        args.docs,
+        chunk_strategy=args.chunk_strategy,
+        embedding_profile=args.embedding_profile,
+    )
 
     if args.query:
         query(index, db, args.query, top_k=args.top_k)

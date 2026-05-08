@@ -50,6 +50,7 @@ class QueryRequest:
     session_collection_name: Optional[str] = None
     session_chroma_path: Optional[str] = None
     knowledge_scope: str = "global"
+    embedding_profile: Optional[str] = None
 
 
 @dataclass
@@ -66,6 +67,7 @@ class QueryResponse:
     truthfulness: Optional[TruthfulnessResult] = None
     # Per-step latencies (retrieval, reranking, generation, etc.)
     step_latencies: Dict[str, float] = field(default_factory=dict)
+    embedding_profile: str = ""
 
 
 class RAGOrchestrator:
@@ -97,8 +99,11 @@ class RAGOrchestrator:
         QueryProcessor,
         Optional[tuple[BM25Index, VectorDatabase]],
         str,
+        str,
     ]:
         qp = QueryProcessor()
+        profile_name = self.cfg.embeddings.resolve_profile_name(req.embedding_profile)
+        profile = self.cfg.embeddings.resolve_profile(req.embedding_profile)
         requested_scope = (req.knowledge_scope or "global").strip().lower()
         session_pair: Optional[tuple[BM25Index, VectorDatabase]] = None
         effective_scope = requested_scope
@@ -109,7 +114,12 @@ class RAGOrchestrator:
             if has_paths and os.path.exists(str(req.session_bm25_index_path)):
                 try:
                     s_index = BM25Index.load(str(req.session_bm25_index_path))
-                    s_db = VectorDatabase(mode="dev", chroma_path=str(req.session_chroma_path))
+                    s_db = VectorDatabase(
+                        mode="dev",
+                        chroma_path=str(req.session_chroma_path),
+                        embedding_profile_name=profile_name,
+                        embedding_profile=profile,
+                    )
                     session_pair = (s_index, s_db)
                 except Exception:
                     effective_scope = "global"
@@ -118,8 +128,13 @@ class RAGOrchestrator:
 
         # Session-only: never touch the global corpus (HF Spaces upload-only demos).
         if effective_scope == "session" and session_pair is not None:
-            placeholder_db = VectorDatabase(mode="dev", chroma_path=CHROMA_PATH)
-            return BM25Index(), placeholder_db, qp, session_pair, effective_scope
+            placeholder_db = VectorDatabase(
+                mode="dev",
+                chroma_path=CHROMA_PATH,
+                embedding_profile_name=profile_name,
+                embedding_profile=profile,
+            )
+            return BM25Index(), placeholder_db, qp, session_pair, effective_scope, profile_name
 
         # Both: if the global BM25 file is absent, fall back to session-only rather than failing.
         if (
@@ -132,12 +147,22 @@ class RAGOrchestrator:
                 BM25_INDEX_PATH,
             )
             effective_scope = "session"
-            placeholder_db = VectorDatabase(mode="dev", chroma_path=CHROMA_PATH)
-            return BM25Index(), placeholder_db, qp, session_pair, effective_scope
+            placeholder_db = VectorDatabase(
+                mode="dev",
+                chroma_path=CHROMA_PATH,
+                embedding_profile_name=profile_name,
+                embedding_profile=profile,
+            )
+            return BM25Index(), placeholder_db, qp, session_pair, effective_scope, profile_name
 
         index = BM25Index.load(BM25_INDEX_PATH)
-        db = VectorDatabase(mode="dev", chroma_path=CHROMA_PATH)
-        return index, db, qp, session_pair, effective_scope
+        db = VectorDatabase(
+            mode="dev",
+            chroma_path=CHROMA_PATH,
+            embedding_profile_name=profile_name,
+            embedding_profile=profile,
+        )
+        return index, db, qp, session_pair, effective_scope, profile_name
 
     def _retrieve(
         self,
@@ -192,8 +217,8 @@ class RAGOrchestrator:
         req: QueryRequest,
         trace: Any,
         step_latencies: Dict[str, float],
-    ) -> tuple[Union[List[RetrievalResult], List[RankedResult]], List[RetrievalResult]]:
-        index, db, qp, session_pair, effective_scope = self._load_components(req)
+    ) -> tuple[Union[List[RetrievalResult], List[RankedResult]], List[RetrievalResult], str]:
+        index, db, qp, session_pair, effective_scope, profile_name = self._load_components(req)
         retrieve_k = max(req.top_k, 20) if req.use_rerank else req.top_k
 
         with self.observer.trace_step(trace, "retrieval", {"top_k": retrieve_k}) as s:
@@ -257,7 +282,7 @@ class RAGOrchestrator:
             display_items = list(docs_for_gen)
             step_latencies["reranking"] = 0.0
 
-        return docs_for_gen, display_items
+        return docs_for_gen, display_items, profile_name
 
     def _log_truthfulness_skip(
         self,
@@ -309,6 +334,7 @@ class RAGOrchestrator:
         cached: GenerationResult,
         processing_time_ms: float,
     ) -> QueryResponse:
+        profile_name = self.cfg.embeddings.resolve_profile_name(req.embedding_profile)
         truthfulness = cached.truthfulness
         if truthfulness is None and req.use_llm and cached.response_text.strip():
             docs_fallback: List[RetrievalResult] = []
@@ -330,6 +356,7 @@ class RAGOrchestrator:
             truthfulness=truthfulness,
             # Cache-hit responses do not have fresh per-step timings.
             step_latencies={"cache_hit": 1.0},
+            embedding_profile=profile_name,
         )
 
     def _finalize_generation_pipeline(
@@ -398,7 +425,7 @@ class RAGOrchestrator:
             return self._response_from_cache(req, selection, cached, cached.latency_ms)
 
         with self.observer.trace_request("rag_query", query=req.query_text) as trace:
-            docs_for_gen, display_items = self._retrieve_docs_for_query(req, trace, step_latencies)
+            docs_for_gen, display_items, profile_name = self._retrieve_docs_for_query(req, trace, step_latencies)
             qp = QueryProcessor()
 
             if not req.use_llm:
@@ -409,6 +436,7 @@ class RAGOrchestrator:
                     retrieved=display_items,
                     processing_time_ms=(time.perf_counter() - t0) * 1000.0,
                     step_latencies=step_latencies,
+                    embedding_profile=profile_name,
                 )
 
             query_type = PromptManager.intent_to_query_type(qp.process_query(req.query_text).intent)
@@ -486,13 +514,14 @@ class RAGOrchestrator:
             validation_issues=val.issues,
             truthfulness=truthfulness,
             step_latencies=step_latencies,
+            embedding_profile=profile_name,
         )
 
     def stream(self, req: QueryRequest) -> Iterator[str]:
         """Yields raw LLM tokens after retrieval. Does not run citations or truthfulness (use StreamingQuerySession)."""
         with self.observer.trace_request("rag_query", query=req.query_text) as trace:
             step_latencies: Dict[str, float] = {}
-            docs_for_gen, _ = self._retrieve_docs_for_query(req, trace, step_latencies)
+            docs_for_gen, _, _ = self._retrieve_docs_for_query(req, trace, step_latencies)
             if not req.use_llm:
                 return
             qp = QueryProcessor()
@@ -540,6 +569,7 @@ class StreamingQuerySession:
         self._trace: Any = None
         self._docs_for_gen: Union[List[RetrievalResult], List[RankedResult], None] = None
         self._display_items: Optional[List[RetrievalResult]] = None
+        self._embedding_profile: str = orchestrator.cfg.embeddings.default_profile
 
     def __enter__(self) -> StreamingQuerySession:
         self._trace_cm = self._o.observer.trace_request("rag_query", query=self._req.query_text)
@@ -563,7 +593,7 @@ class StreamingQuerySession:
             for i in range(0, len(text), chunk):
                 yield text[i : i + chunk]
             return
-        self._docs_for_gen, self._display_items = self._o._retrieve_docs_for_query(
+        self._docs_for_gen, self._display_items, self._embedding_profile = self._o._retrieve_docs_for_query(
             self._req, self._trace, self._step_latencies
         )
         qp = QueryProcessor()
@@ -597,7 +627,7 @@ class StreamingQuerySession:
     def finalize(self) -> QueryResponse:
         if not self._req.use_llm:
             if self._display_items is None:
-                self._docs_for_gen, self._display_items = self._o._retrieve_docs_for_query(
+                self._docs_for_gen, self._display_items, self._embedding_profile = self._o._retrieve_docs_for_query(
                     self._req, self._trace, self._step_latencies
                 )
             return QueryResponse(
@@ -607,6 +637,7 @@ class StreamingQuerySession:
                 retrieved=self._display_items or [],
                 processing_time_ms=(time.perf_counter() - self._t0) * 1000.0,
                 step_latencies=self._step_latencies,
+                embedding_profile=self._embedding_profile,
             )
         if self._cached is not None:
             return self._o._response_from_cache(
@@ -654,4 +685,5 @@ class StreamingQuerySession:
             validation_issues=val.issues,
             truthfulness=truthfulness,
             step_latencies=self._step_latencies,
+            embedding_profile=self._embedding_profile,
         )

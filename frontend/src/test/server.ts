@@ -32,9 +32,19 @@ const mockLlmConfig = {
   },
   demo_mode: true,
 }
+const mockRuntimeConfig = {
+  chunking_default_strategy: 'tiktoken',
+  chunking_allowed_strategies: ['tiktoken', 'spacy', 'nltk', 'medical', 'legal'],
+  embedding_default_profile: 'ollama_nomic',
+  embedding_profiles: {
+    ollama_nomic: { provider: 'ollama', framework: 'ollama', model: 'nomic-embed-text', dimension: 768, options: {} },
+    st_minilm: { provider: 'sentence_transformers', framework: 'sentence_transformers', model: 'all-MiniLM-L6-v2', dimension: 384, options: {} },
+  },
+}
 
 export const handlers = [
   http.get('http://127.0.0.1:8000/config/llm', () => HttpResponse.json(mockLlmConfig)),
+  http.get('http://127.0.0.1:8000/config/runtime', () => HttpResponse.json(mockRuntimeConfig)),
   http.post('http://127.0.0.1:8000/sessions', () => HttpResponse.json(mockSession)),
   http.get('http://127.0.0.1:8000/sessions/:sid', () => HttpResponse.json(mockSession)),
   http.delete('http://127.0.0.1:8000/sessions/:sid', () =>

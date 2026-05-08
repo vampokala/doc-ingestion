@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Deque, Dict, Iterator, cast
 
-from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Request, Response, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +28,7 @@ from src.api.models import (
     QueryRequestModel,
     QueryResponseModel,
     RetrievedChunkModel,
+    RuntimeConfigModel,
     TruthfulnessModel,
 )
 from src.core.observability import get_observer
@@ -274,6 +275,20 @@ def llm_config() -> LLMConfigModel:
     )
 
 
+@app.get("/config/runtime", response_model=RuntimeConfigModel)
+def runtime_config() -> RuntimeConfigModel:
+    embedding_profiles = {
+        name: profile.model_dump()
+        for name, profile in _cfg.embeddings.profiles.items()
+    }
+    return RuntimeConfigModel(
+        chunking_default_strategy=_cfg.chunking.default_strategy,
+        chunking_allowed_strategies=list(_cfg.chunking.allowed_strategies),
+        embedding_default_profile=_cfg.embeddings.default_profile,
+        embedding_profiles=embedding_profiles,
+    )
+
+
 @app.get("/metrics", response_model=MetricsModel)
 def metrics(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> MetricsModel:
     # no request object here; audit logs are captured in protected endpoints with request context
@@ -338,6 +353,8 @@ if _demo_uploads_enabled():
         sid: str,
         request: Request,
         files: list[UploadFile] = File(default_factory=list),
+        chunk_strategy: str | None = Form(default=None),
+        embedding_profile: str | None = Form(default=None),
         x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     ) -> dict[str, Any]:
         _verify_auth(x_api_key, provider="uploads")
@@ -374,6 +391,8 @@ if _demo_uploads_enabled():
             bm25_index_path=str(session.bm25_index_path),
             collection_name=session.collection_name,
             chroma_path=str(session.chroma_path),
+            chunk_strategy=chunk_strategy,
+            embedding_profile=embedding_profile,
         )
         session_corpus.touch(sid)
         return {"session_id": sid, "results": [r.__dict__ for r in staged], **_session_summary(session)}
@@ -457,6 +476,7 @@ def query(
                 provider_api_key=req.provider_api_key,
                 reranker_model=req.reranker_model,
                 include_citations=req.include_citations,
+                embedding_profile=req.embedding_profile,
                 **session_kwargs,
             )
         )
@@ -516,6 +536,7 @@ def query(
         citations=citation_models,
         retrieved=retrieved,
         truthfulness=truthfulness_model,
+        embedding_profile=out.embedding_profile,
     )
 
 
@@ -568,6 +589,7 @@ def query_stream(
                 provider_api_key=req.provider_api_key,
                 reranker_model=req.reranker_model,
                 include_citations=req.include_citations,
+                embedding_profile=req.embedding_profile,
                 **session_kwargs,
             )
             with StreamingQuerySession(_orchestrator, stream_req) as session:
@@ -591,6 +613,7 @@ def query_stream(
                 "processing_time_ms": final.processing_time_ms,
                 "cached": final.cached,
                 "validation_issues": final.validation_issues,
+                "embedding_profile": final.embedding_profile,
             }
             _metrics_collector.record_request(_build_request_metrics(request_id, final))
             yield f"data: {json.dumps(final_payload)}\n\n"

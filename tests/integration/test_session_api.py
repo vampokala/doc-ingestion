@@ -30,6 +30,7 @@ def test_session_lifecycle_and_query(monkeypatch, tmp_path):
         retrieved = []
         truthfulness = None
         step_latencies = {}
+        embedding_profile = "ollama_nomic"
 
     captured = {}
 

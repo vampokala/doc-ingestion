@@ -42,12 +42,22 @@ COLLECTION_NAME = "documents"
 DEFAULT_LLM_MODEL = os.environ.get("OLLAMA_QUERY_MODEL", "deepseek-r1:8b")
 
 
-def load_components() -> tuple[BM25Index, VectorDatabase, QueryProcessor]:
+def load_components(
+    cfg: Config,
+    embedding_profile: str | None = None,
+) -> tuple[BM25Index, VectorDatabase, QueryProcessor]:
     logger.info("Loading BM25 index from %s", BM25_INDEX_PATH)
     index = BM25Index.load(BM25_INDEX_PATH)
 
     logger.info("Connecting to ChromaDB at %s", CHROMA_PATH)
-    db = VectorDatabase(mode="dev", chroma_path=CHROMA_PATH)
+    profile_name = cfg.embeddings.resolve_profile_name(embedding_profile)
+    profile = cfg.embeddings.resolve_profile(embedding_profile)
+    db = VectorDatabase(
+        mode="dev",
+        chroma_path=CHROMA_PATH,
+        embedding_profile_name=profile_name,
+        embedding_profile=profile,
+    )
 
     return index, db, QueryProcessor()
 
@@ -82,6 +92,7 @@ def run_query(
     use_rerank: bool = True,
     stream: bool = False,
     reranker_model: str | None = None,
+    embedding_profile: str | None = None,
     config_path: str = "config.yaml",
 ) -> None:
     try:
@@ -102,7 +113,7 @@ def run_query(
         print()
         return
 
-    index, db, qp = load_components()
+    index, db, qp = load_components(cfg, embedding_profile)
 
     processed = qp.process_query(query_text)
     print(f"\nQuery    : {query_text}")
@@ -218,6 +229,11 @@ def main() -> None:
         help="Cross-encoder HuggingFace id (default: config.reranker.model)",
     )
     parser.add_argument(
+        "--embedding-profile",
+        default=None,
+        help="Embedding profile name from config.embeddings.profiles (default: config.embeddings.default_profile)",
+    )
+    parser.add_argument(
         "--config",
         default="config.yaml",
         help="Path to YAML config (default: config.yaml)",
@@ -233,6 +249,7 @@ def main() -> None:
             use_rerank=not args.no_rerank,
             stream=args.stream,
             reranker_model=args.reranker_model,
+            embedding_profile=args.embedding_profile,
             config_path=args.config,
         )
     except FileNotFoundError:
