@@ -89,15 +89,17 @@ function readApiKey() {
 
 async function parseError(response: Response) {
   let detail: unknown
+  let rawText = ''
   try {
-    detail = await response.json()
+    rawText = await response.text()
+    detail = rawText ? JSON.parse(rawText) : null
   } catch {
-    detail = await response.text()
+    detail = rawText || null
   }
   const message =
     typeof detail === 'object' && detail !== null && 'detail' in detail
       ? String((detail as { detail: unknown }).detail)
-      : `Request failed with status ${response.status}`
+      : (typeof detail === 'string' && detail.trim() ? detail : `Request failed with status ${response.status}`)
   return new ApiError(message, response.status, detail)
 }
 
