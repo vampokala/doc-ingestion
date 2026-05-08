@@ -61,6 +61,8 @@ Important sections:
 
 - `generation`: default model, cache TTL
 - `llm`: provider defaults + allowlists
+- `chunking`: default and allowed ingestion chunking strategies
+- `embeddings`: default and allowed embedding profiles
 - `api`: auth + rate limiting
 
 ### 4.1 API auth
@@ -97,6 +99,31 @@ Place files in `data/documents/` and run:
 ```bash
 python -m src.ingest --docs data/documents
 ```
+
+Optional ingestion overrides:
+
+```bash
+python -m src.ingest \
+  --docs data/documents \
+  --chunk-strategy medical \
+  --embedding-profile st_minilm
+```
+
+Supported chunking strategies:
+
+- `tiktoken`
+- `spacy`
+- `nltk`
+- `medical`
+- `legal`
+
+Built-in embedding profiles:
+
+- `ollama_nomic`
+- `st_minilm`
+- `st_mpnet_base`
+- `st_multi_qa_minilm`
+- `st_bge_small_en`
 
 Verify artifacts:
 
@@ -145,6 +172,19 @@ curl -X POST http://127.0.0.1:8000/query \
     "model":"qwen2.5:7b",
     "top_k":5,
     "include_citations":true
+  }'
+```
+
+You can also route retrieval using a specific embedding profile:
+
+```bash
+curl -X POST http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dev-key-1" \
+  -d '{
+    "query":"How does hybrid retrieval work?",
+    "embedding_profile":"st_minilm",
+    "top_k":5
   }'
 ```
 
@@ -277,6 +317,15 @@ docker compose -f docker/docker-compose.yml logs -f api
 
 - On macOS/Windows keep `OLLAMA_BASE_URL=http://host.docker.internal:11434`
 - Ensure Ollama service is running and model is pulled
+- Or switch to non-Ollama embedding profiles (`st_*`) for ingestion/query
+
+### 11.9 Upload returns embedding backend unavailable
+
+- The upload endpoint now returns a clean `400` when Ollama embeddings are selected but not reachable.
+- Fixes:
+  - choose a sentence-transformers embedding profile in the uploader
+  - or configure/reach Ollama on the running server
+  - on Spaces, restart app after config updates so runtime defaults refresh
 
 ### 11.7 Anthropic model not found
 

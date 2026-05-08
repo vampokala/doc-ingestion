@@ -28,13 +28,13 @@ For non-technical reviewers, this is a working document Q&A product: load docume
 For technical reviewers, this is an end-to-end RAG reference implementation with:
 
 - Multi-format ingestion for `.pdf`, `.docx`, `.txt`, `.md`, and `.html`
-- Token-aware chunking and persistent document indexes
+- Token-aware chunking with selectable strategies (`tiktoken`, `spacy`, `nltk`, `medical`, `legal`)
 - Hybrid retrieval using BM25 keyword search plus vector search
 - Weighted Reciprocal Rank Fusion (RRF) across sparse and dense results
 - Optional cross-encoder reranking for stronger final context
 - Multi-provider LLM routing across Ollama, OpenAI, Anthropic, and Gemini
 - Citation tracking, citation verification, and inline truthfulness scoring
-- FastAPI, Streamlit, CLI, Docker, Redis-backed rate limiting, and offline evals
+- FastAPI, React upload FAQ guidance, Streamlit, CLI, Docker, Redis-backed rate limiting, and offline evals
 
 ## Product Capabilities
 
@@ -136,6 +136,7 @@ Doc-Ingestion is designed around a grounding contract: retrieve evidence first, 
 - Ask questions through Streamlit, FastAPI, or the CLI.
 - Inspect answers, citations, source evidence, and truthfulness scores.
 - Switch LLM providers and models per request when credentials are configured.
+- Select chunking strategy and embedding profile before upload in the React uploader.
 
 In hosted demo mode (`DOC_PROFILE=demo`), Streamlit executes queries in-process through the shared orchestrator so the demo is not blocked by localhost API startup races. Local non-demo mode uses the standard split architecture where Streamlit calls FastAPI over HTTP.
 
@@ -242,7 +243,18 @@ Response includes answer text, citations, retrieved evidence, and a `truthfulnes
 }
 ```
 
-Endpoints: `GET /health`, `GET /metrics`, `POST /query`, `POST /query/stream` (SSE).
+Endpoints: `GET /health`, `GET /metrics`, `GET /config/llm`, `GET /config/runtime`, `POST /query`, `POST /query/stream` (SSE).
+
+### Upload controls and runtime options
+
+- React uploader now follows a 3-step flow:
+  - Step 1: choose chunking strategy + embedding profile
+  - Step 2: choose files (staged, no auto-upload)
+  - Step 3: click upload
+- Runtime options are exposed by `GET /config/runtime` and include:
+  - `chunking_allowed_strategies`
+  - `embedding_profiles`
+- In hosted environments (`SPACE_ID` set), config prefers a non-Ollama embedding profile when available.
 
 ## Evaluation
 
@@ -271,6 +283,15 @@ PYTHONPATH=. python -m evals.run_evals \
   --mock \
   --no-nli \
   --output evals/reports/
+
+# Optional comparison matrix (chunking x embedding profiles)
+PYTHONPATH=. python -m evals.run_evals \
+  --dataset evals/datasets/smoke.jsonl \
+  --mock \
+  --no-nli \
+  --chunking-strategies tiktoken,medical \
+  --embedding-profiles st_minilm,st_bge_small_en \
+  --output evals/reports/
 ```
 
 Reports are written to `evals/reports/` as JSON and Markdown.
@@ -296,6 +317,7 @@ Offline report notes:
 ## Where To Go Deeper
 
 - [`Docs/PROJECT_OVERVIEW.md`](Docs/PROJECT_OVERVIEW.md) - system architecture and reader-friendly project overview
+- [`Docs/PROJECT_OVERVIEW.md#how-custom-embeddings-are-implemented`](Docs/PROJECT_OVERVIEW.md#how-custom-embeddings-are-implemented) - profile-based embedding implementation details
 - [`Docs/RUNBOOK.md`](Docs/RUNBOOK.md) - local setup, Docker setup, API keys, rate limiting, troubleshooting
 - [`Docs/phase2_hybrid_retrieval.md`](Docs/phase2_hybrid_retrieval.md) - hybrid retrieval and RRF design
 - [`Docs/phase3_reranking_generation.md`](Docs/phase3_reranking_generation.md) - reranking, generation, and context optimization
@@ -327,7 +349,7 @@ Deployment-related environment variables (not stored in `config.yaml`; see [Olla
 ## Troubleshooting
 
 - **Empty results after ingest:** Run `python -m src.ingest --docs data/documents` and verify `data/embeddings/` exists.
-- **Embedding model error:** Ensure Ollama is running and `nomic-embed-text` is pulled, or switch to a different embedding provider in `config.yaml`.
+- **Embedding model error:** If Ollama is unavailable, choose a sentence-transformers profile (`st_minilm`, `st_mpnet_base`, `st_multi_qa_minilm`, `st_bge_small_en`) in the uploader/query settings.
 - **Dimension mismatch after model change:** Re-ingest all documents to rebuild the vector index.
 - **Cloud provider fails:** Check the relevant `*_API_KEY` env var is set.
 - **Truthfulness score always 0:** The NLI model (`cross-encoder/nli-deberta-v3-small`) downloads on first use. Check internet access or set `evaluation.inline_enabled: false` in `config.yaml` to disable.

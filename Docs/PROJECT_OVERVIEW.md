@@ -44,6 +44,57 @@ flowchart LR
 2. Chunks are inserted into BM25 index.
 3. Embeddings are generated and upserted to vector DB.
 4. Streamlit ingest tab can stage uploads and trigger this flow.
+
+## How custom embeddings are implemented
+
+Custom embeddings are profile-driven and routed end-to-end, rather than hardcoded per environment.
+
+### 1) Config contract
+
+- Embedding profiles are declared in `config.yaml` under `embeddings.profiles`.
+- Each profile defines:
+  - `provider` (for example `ollama`, `sentence_transformers`)
+  - `framework`
+  - `model`
+  - `dimension`
+  - `options` (provider-specific extras)
+- Runtime model in code:
+  - `EmbeddingProfile`, `EmbeddingSettings` in `src/utils/config.py`
+
+### 2) Runtime profile resolution
+
+- API/UI and CLI can pass `embedding_profile`.
+- If omitted, runtime uses `embeddings.default_profile`.
+- On hosted environments (`SPACE_ID` set), config prefers a non-Ollama default profile when available.
+
+### 3) Vector-store isolation by profile
+
+- `VectorDatabase` receives an explicit embedding profile object.
+- Collection naming is profile-aware (logical base + profile suffix) to avoid vector mixing across models.
+- Dimension checks run before insert and query. If vector length mismatches profile dimension, ingestion/query fails fast with a clear error.
+
+### 4) Request flow wiring
+
+- Upload path:
+  - React uploader posts `embedding_profile` in multipart form.
+  - FastAPI upload endpoint forwards to ingestion service and ingest pipeline.
+- Query path:
+  - Query request accepts `embedding_profile`.
+  - Orchestrator resolves profile and loads vector retrieval with that profile.
+
+### 5) How to add a new custom embedding profile
+
+1. Add a profile in `config.yaml` with correct `model` and `dimension`.
+2. Ensure runtime can load/access that model (local model or downloadable model).
+3. Restart API process so `/config/runtime` reflects the new profile.
+4. Re-ingest documents for fair comparisons and index consistency.
+
+### 6) Built-in non-Ollama profiles
+
+- `st_minilm` (`all-MiniLM-L6-v2`, 384)
+- `st_mpnet_base` (`all-mpnet-base-v2`, 768)
+- `st_multi_qa_minilm` (`multi-qa-MiniLM-L6-cos-v1`, 384)
+- `st_bge_small_en` (`BAAI/bge-small-en-v1.5`, 384)
 # Project Overview
 
 Purpose: summarize what this project does, why it is useful, and how it is designed.  

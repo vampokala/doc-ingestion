@@ -69,6 +69,22 @@ def _default_ollama_base_url() -> str:
     return _env_or("OLLAMA_BASE_URL", _env_or("OLLAMA_HOST", "http://localhost:11434"))
 
 
+def _prefer_non_ollama_embedding_profile(cfg: Config) -> Config:
+    embeddings = cfg.embeddings
+    profiles = embeddings.profiles
+    current_default = embeddings.default_profile
+    current = profiles.get(current_default)
+    if current is None:
+        return cfg
+    if current.provider.strip().lower() != "ollama":
+        return cfg
+    for name, profile in profiles.items():
+        if profile.provider.strip().lower() != "ollama":
+            updated = embeddings.model_copy(update={"default_profile": name})
+            return cfg.model_copy(update={"embeddings": updated})
+    return cfg
+
+
 class RerankerSettings(BaseModel):
     model: str = Field("cross-encoder/ms-marco-MiniLM-L-6-v2", description="Cross-encoder HF id")
     batch_size: int = Field(32, ge=1)
@@ -202,6 +218,24 @@ class EmbeddingSettings(BaseModel):
                 model="all-MiniLM-L6-v2",
                 dimension=384,
             ),
+            "st_mpnet_base": EmbeddingProfile(
+                provider="sentence_transformers",
+                framework="sentence_transformers",
+                model="all-mpnet-base-v2",
+                dimension=768,
+            ),
+            "st_multi_qa_minilm": EmbeddingProfile(
+                provider="sentence_transformers",
+                framework="sentence_transformers",
+                model="multi-qa-MiniLM-L6-cos-v1",
+                dimension=384,
+            ),
+            "st_bge_small_en": EmbeddingProfile(
+                provider="sentence_transformers",
+                framework="sentence_transformers",
+                model="BAAI/bge-small-en-v1.5",
+                dimension=384,
+            ),
         }
     )
     allowed_profiles: List[str] = Field(
@@ -299,4 +333,8 @@ def load_config(config_path: str = "config.yaml", env: str | None = None) -> Con
         raise ValueError(f"Invalid configuration: {e}")
     if not doc_ollama_runtime_enabled():
         cfg = _strip_ollama_llm_settings(cfg)
+    # On hosted environments without local Ollama daemon, prefer a non-Ollama
+    # embedding profile when available to avoid upload/query failures.
+    if os.getenv("SPACE_ID", "").strip():
+        cfg = _prefer_non_ollama_embedding_profile(cfg)
     return cfg

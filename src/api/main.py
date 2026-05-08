@@ -386,14 +386,24 @@ if _demo_uploads_enabled():
             max_file_bytes=MAX_FILE_BYTES,
             max_session_bytes=MAX_SESSION_BYTES,
         )
-        run_ingest(
-            str(session.upload_dir),
-            bm25_index_path=str(session.bm25_index_path),
-            collection_name=session.collection_name,
-            chroma_path=str(session.chroma_path),
-            chunk_strategy=chunk_strategy,
-            embedding_profile=embedding_profile,
-        )
+        try:
+            run_ingest(
+                str(session.upload_dir),
+                bm25_index_path=str(session.bm25_index_path),
+                collection_name=session.collection_name,
+                chroma_path=str(session.chroma_path),
+                chunk_strategy=chunk_strategy,
+                embedding_profile=embedding_profile,
+            )
+        except Exception as exc:
+            detail = str(exc)
+            if "Failed to connect to Ollama" in detail:
+                detail = (
+                    "Embedding backend unavailable: Ollama is not reachable. "
+                    "Select a non-Ollama embedding profile (for example 'st_minilm') "
+                    "or configure Ollama on the server."
+                )
+            raise HTTPException(status_code=400, detail=detail) from exc
         session_corpus.touch(sid)
         return {"session_id": sid, "results": [r.__dict__ for r in staged], **_session_summary(session)}
 

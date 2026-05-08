@@ -25,6 +25,24 @@ embeddings:
       model: all-MiniLM-L6-v2
       dimension: 384
       options: {}
+    st_mpnet_base:
+      provider: sentence_transformers
+      framework: sentence_transformers
+      model: all-mpnet-base-v2
+      dimension: 768
+      options: {}
+    st_multi_qa_minilm:
+      provider: sentence_transformers
+      framework: sentence_transformers
+      model: multi-qa-MiniLM-L6-cos-v1
+      dimension: 384
+      options: {}
+    st_bge_small_en:
+      provider: sentence_transformers
+      framework: sentence_transformers
+      model: BAAI/bge-small-en-v1.5
+      dimension: 384
+      options: {}
 
 # File paths
 data_dir: data/documents
