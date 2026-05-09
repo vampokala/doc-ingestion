@@ -155,7 +155,15 @@ class RAGOrchestrator:
             )
             return BM25Index(), placeholder_db, qp, session_pair, effective_scope, profile_name
 
-        index = BM25Index.load(BM25_INDEX_PATH)
+        if not os.path.isfile(BM25_INDEX_PATH):
+            logger.warning(
+                "Global BM25 index missing at %s; BM25 leg disabled until ingest runs. "
+                "Vector retrieval still proceeds if the embedding store exists.",
+                BM25_INDEX_PATH,
+            )
+            index = BM25Index()
+        else:
+            index = BM25Index.load(BM25_INDEX_PATH)
         db = VectorDatabase(
             mode="dev",
             chroma_path=CHROMA_PATH,

@@ -46,8 +46,15 @@ def load_components(
     cfg: Config,
     embedding_profile: str | None = None,
 ) -> tuple[BM25Index, VectorDatabase, QueryProcessor]:
-    logger.info("Loading BM25 index from %s", BM25_INDEX_PATH)
-    index = BM25Index.load(BM25_INDEX_PATH)
+    if os.path.isfile(BM25_INDEX_PATH):
+        logger.info("Loading BM25 index from %s", BM25_INDEX_PATH)
+        index = BM25Index.load(BM25_INDEX_PATH)
+    else:
+        logger.warning(
+            "BM25 index not found at %s; BM25 disabled until ingest. Using empty BM25 index.",
+            BM25_INDEX_PATH,
+        )
+        index = BM25Index()
 
     logger.info("Connecting to ChromaDB at %s", CHROMA_PATH)
     profile_name = cfg.embeddings.resolve_profile_name(embedding_profile)
