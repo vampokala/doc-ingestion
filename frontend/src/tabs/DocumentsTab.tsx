@@ -1,11 +1,11 @@
 import * as Progress from '@radix-ui/react-progress'
-import { RotateCcw } from 'lucide-react'
+import { Fingerprint } from 'lucide-react'
 import { Uploader } from '../components/Uploader'
 import { formatBytes, formatTtl } from '../lib/format'
 import { useSession } from '../session/SessionContext'
 
 export function DocumentsTab({ onOpenUploadFaq }: { onOpenUploadFaq?: () => void }) {
-  const { sessionId, summary, expiresAt, refreshSession, clearSession, isMintingSession } = useSession()
+  const { sessionId, summary, expiresAt, refreshSession, clearSession, isMintingSession, bootstrapPaused } = useSession()
   const usedBytes = summary?.total_bytes ?? 0
   const maxBytes = summary?.max_session_bytes ?? 8 * 1024 * 1024
   const files = summary?.files ?? []
@@ -14,8 +14,8 @@ export function DocumentsTab({ onOpenUploadFaq }: { onOpenUploadFaq?: () => void
   const filePercent = Math.min(100, (files.length / maxFiles) * 100)
 
   return (
-    <div className="space-y-5">
-      <section className="app-card p-5">
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
+      <section className="app-card shrink-0 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-950">My documents</h2>
@@ -26,11 +26,12 @@ export function DocumentsTab({ onOpenUploadFaq }: { onOpenUploadFaq?: () => void
           <button
             type="button"
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-50"
-            disabled={!sessionId || isMintingSession}
+            disabled={!sessionId || isMintingSession || bootstrapPaused}
+            title="Fresh ID for uploads in this browser. Replaces any current demo session (including uploads on the server)."
             onClick={() => void clearSession()}
           >
-            <RotateCcw className="h-4 w-4" aria-hidden="true" />
-            Clear my session
+            <Fingerprint className="h-4 w-4" aria-hidden="true" />
+            New session
           </button>
         </div>
 
@@ -58,14 +59,10 @@ export function DocumentsTab({ onOpenUploadFaq }: { onOpenUploadFaq?: () => void
       </section>
 
       {sessionId ? (
-        <section className="app-card p-5">
+        <section className="app-card shrink-0 p-5">
           <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
             <span>Need help choosing chunking strategy or embedding profile?</span>
-            <button
-              type="button"
-              className="font-semibold underline"
-              onClick={() => onOpenUploadFaq?.()}
-            >
+            <button type="button" className="font-semibold underline" onClick={() => onOpenUploadFaq?.()}>
               Read Upload FAQ
             </button>
           </div>
@@ -73,20 +70,22 @@ export function DocumentsTab({ onOpenUploadFaq }: { onOpenUploadFaq?: () => void
         </section>
       ) : null}
 
-      <section className="app-card p-5">
-        <h2 className="mb-3 text-lg font-semibold text-slate-950">Indexed files</h2>
-        {files.length === 0 ? (
-          <p className="text-sm text-slate-600">No uploaded documents yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {files.map((file) => (
-              <li key={file.name} className="flex justify-between rounded-lg bg-slate-50 p-3 text-sm">
-                <span className="font-medium text-slate-900">{file.name}</span>
-                <span className="text-slate-600">{formatBytes(file.size_bytes)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+      <section className="app-card flex min-h-[42vh] min-h-0 flex-1 flex-col p-5">
+        <h2 className="mb-3 shrink-0 text-lg font-semibold text-slate-950">Indexed files</h2>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {files.length === 0 ? (
+            <p className="text-sm text-slate-600">No uploaded documents yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {files.map((file) => (
+                <li key={file.name} className="flex justify-between rounded-lg bg-slate-50 p-3 text-sm">
+                  <span className="font-medium text-slate-900">{file.name}</span>
+                  <span className="text-slate-600">{formatBytes(file.size_bytes)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
     </div>
   )

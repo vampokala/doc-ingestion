@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { AnswerPanel } from '../components/AnswerPanel'
 import { CitationsList } from '../components/CitationsList'
@@ -11,6 +11,8 @@ import { streamQuery } from '../lib/streamQuery'
 import { useSession } from '../session/SessionContext'
 
 const PROVIDER_KEY_PREFIX = 'doc-ingestion.provider-key.'
+/** Persist stream preference; `'0'` means prefer non-streaming POST /query. */
+const STREAM_PREF_KEY = 'doc-ingestion.query.stream'
 
 function buildRequest(
   query: string,
@@ -20,6 +22,7 @@ function buildRequest(
   model: string,
   providerApiKey: string,
   embeddingProfile: string,
+  stream: boolean,
 ): QueryRequestModel {
   const trimmedKey = providerApiKey.trim()
   return {
@@ -27,7 +30,7 @@ function buildRequest(
     top_k: 5,
     use_llm: true,
     use_rerank: true,
-    stream: true,
+    stream,
     include_citations: true,
     session_id: sessionId,
     knowledge_scope: scope,
@@ -66,6 +69,21 @@ export function QueryTab() {
   const [response, setResponse] = useState<QueryResponseModel | null>(null)
   const [message, setMessage] = useState('')
   const answerRef = useRef('')
+  const [streamAnswersEnabled, setStreamAnswersEnabled] = useState(() => {
+    try {
+      return localStorage.getItem(STREAM_PREF_KEY) !== '0'
+    } catch {
+      return true
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STREAM_PREF_KEY, streamAnswersEnabled ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }, [streamAnswersEnabled])
 
   const { data: llmConfig, isLoading: llmConfigLoading, isError: llmConfigError } = useQuery({
     queryKey: ['llm-config'],
@@ -129,7 +147,7 @@ export function QueryTab() {
     },
   })
 
-  const [isStreaming, setIsStreaming] = useState(false)
+  const [isRunInProgress, setIsRunInProgress] = useState(false)
 
   const modelOptions = llmConfig && provider ? llmConfig.allowed_models_by_provider[provider] ?? [] : []
   const serverProviderKeyConfigured = !!(llmConfig && provider && llmConfig.provider_key_configured?.[provider])
@@ -161,49 +179,67 @@ export function QueryTab() {
       localStorage.setItem(`${PROVIDER_KEY_PREFIX}${provider}`, providerApiKey.trim())
     }
 
-    const request = buildRequest(trimmed, sessionId, scope, provider, model, effectiveProviderKey, embeddingProfile)
+    const request = buildRequest(
+      trimmed,
+      sessionId,
+      scope,
+      provider,
+      model,
+      effectiveProviderKey,
+      embeddingProfile,
+      streamAnswersEnabled,
+    )
     answerRef.current = ''
     setStreamingText('')
     setResponse(null)
     setMessage('')
-    setIsStreaming(true)
+    setIsRunInProgress(true)
     try {
-      await streamQuery(request, {
-        onToken: (token) => {
-          answerRef.current += token
-          setStreamingText(answerRef.current)
-        },
-        onFinal: (final) => {
-          setResponse({
-            query: trimmed,
-            provider: final.provider,
-            model: final.model,
-            answer: answerRef.current,
-            processing_time_ms: 0,
-            cached: false,
-            validation_issues: [],
-            citations: final.citations ?? [],
-            retrieved: final.retrieved ?? [],
-            truthfulness: final.truthfulness ?? null,
-          })
-        },
-      })
+      if (!streamAnswersEnabled) {
+        const data = await queryDocuments({ ...request, stream: false })
+        setResponse(data)
+        setStreamingText(data.answer)
+        answerRef.current = data.answer
+      } else {
+        await streamQuery(request, {
+          onToken: (token) => {
+            answerRef.current += token
+            setStreamingText(answerRef.current)
+          },
+          onFinal: (final) => {
+            setResponse({
+              query: trimmed,
+              provider: final.provider,
+              model: final.model,
+              answer: answerRef.current,
+              processing_time_ms: 0,
+              cached: false,
+              validation_issues: [],
+              citations: final.citations ?? [],
+              retrieved: final.retrieved ?? [],
+              truthfulness: final.truthfulness ?? null,
+            })
+          },
+        })
+      }
     } catch {
-      await fallbackMutation.mutateAsync(request)
+      await fallbackMutation.mutateAsync({ ...request, stream: false })
     } finally {
-      setIsStreaming(false)
+      setIsRunInProgress(false)
     }
   }
 
-  const answer = streamingText || response?.answer || ''
   const providerOptions = llmConfig ? Object.keys(llmConfig.allowed_models_by_provider).sort() : []
   const runDisabled =
     !provider
     || !model
     || llmConfigLoading
     || (needsProviderKey && !providerApiKey.trim())
-    || isStreaming
+    || isRunInProgress
     || fallbackMutation.isPending
+
+  const answer = streamingText || response?.answer || ''
+  const renderAnswerMarkdown = !isRunInProgress && answer.trim().length > 0
 
   return (
     <div className="space-y-5">
@@ -368,20 +404,33 @@ export function QueryTab() {
           />
         </label>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={streamAnswersEnabled}
+              onChange={(event) => setStreamAnswersEnabled(event.target.checked)}
+            />
+            Stream answers
+          </label>
           <button
             type="button"
             className="rounded-lg bg-blue-600 px-5 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             disabled={runDisabled}
             onClick={() => void submit()}
           >
-            {isStreaming || fallbackMutation.isPending ? 'Running...' : 'Run'}
+            {isRunInProgress || fallbackMutation.isPending ? 'Running...' : 'Run'}
           </button>
           {message ? <p className="text-sm text-slate-700" aria-live="polite">{message}</p> : null}
         </div>
       </section>
 
-      <AnswerPanel answer={answer} response={response} isLoading={isStreaming || fallbackMutation.isPending} />
+      <AnswerPanel
+        answer={answer}
+        response={response}
+        isLoading={isRunInProgress || fallbackMutation.isPending}
+        renderMarkdown={renderAnswerMarkdown}
+      />
       <CitationsList citations={response?.citations ?? []} sessionFiles={summary?.files ?? []} />
       <RetrievedChunks chunks={response?.retrieved ?? []} />
     </div>

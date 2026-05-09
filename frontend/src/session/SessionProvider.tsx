@@ -16,7 +16,13 @@ function isStaleSessionError(error: unknown) {
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient()
-  const { sessionId, expiresAt, setSession, clearLocalSession } = useSessionStore()
+  const sessionId = useSessionStore((s) => s.sessionId)
+  const expiresAt = useSessionStore((s) => s.expiresAt)
+  const bootstrapPaused = useSessionStore((s) => s.bootstrapPaused)
+  const setSession = useSessionStore((s) => s.setSession)
+  const clearLocalSession = useSessionStore((s) => s.clearLocalSession)
+  const pauseBootstrap = useSessionStore((s) => s.pauseBootstrap)
+  const resumeBootstrap = useSessionStore((s) => s.resumeBootstrap)
 
   const createMutation = useMutation({
     mutationFn: createSession,
@@ -44,18 +50,24 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   })
 
   useEffect(() => {
+    if (bootstrapPaused) {
+      return
+    }
     if (sessionId || createMutation.isPending || createMutation.isError) {
       return
     }
     mutateCreateSession()
-  }, [sessionId, createMutation.isPending, createMutation.isError, mutateCreateSession])
+  }, [bootstrapPaused, sessionId, createMutation.isPending, createMutation.isError, mutateCreateSession])
 
   useEffect(() => {
+    if (bootstrapPaused) {
+      return
+    }
     if (isStaleSessionError(sessionQuery.error)) {
       clearLocalSession()
       mutateCreateSession()
     }
-  }, [clearLocalSession, mutateCreateSession, sessionQuery.error])
+  }, [bootstrapPaused, clearLocalSession, mutateCreateSession, sessionQuery.error])
 
   useEffect(() => {
     if (sessionQuery.data) {
@@ -63,7 +75,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   }, [sessionQuery.data, setSession])
 
-  const isMintingSession = Boolean(!sessionId && createMutation.isPending)
+  const isMintingSession = Boolean(!sessionId && !bootstrapPaused && createMutation.isPending)
   const awaitsSessionEnvelope =
     Boolean(sessionId) && sessionQuery.data == null && (sessionQuery.isPending || sessionQuery.isFetching)
 
@@ -71,6 +83,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     () => ({
       sessionId,
       expiresAt,
+      bootstrapPaused,
       summary: sessionQuery.data,
       isMintingSession,
       awaitsSessionEnvelope,
@@ -79,8 +92,31 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       hasUploads: Boolean(sessionQuery.data?.files.length),
       refreshSession: () => sessionQuery.refetch(),
       retrySession: async () => {
+        resumeBootstrap()
+        createMutation.reset()
         clearLocalSession()
         await createMutation.mutateAsync()
+      },
+      startSession: async () => {
+        resumeBootstrap()
+        createMutation.reset()
+        if (!useSessionStore.getState().sessionId) {
+          await createMutation.mutateAsync()
+        }
+      },
+      logout: async () => {
+        const id = useSessionStore.getState().sessionId
+        pauseBootstrap()
+        clearLocalSession()
+        queryClient.clear()
+        createMutation.reset()
+        if (id) {
+          try {
+            await deleteSession(id)
+          } catch {
+            /* best-effort server cleanup */
+          }
+        }
       },
       clearSession: async () => {
         if (!sessionId) {
@@ -96,12 +132,15 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       },
     }),
     [
+      awaitsSessionEnvelope,
+      bootstrapPaused,
       clearLocalSession,
       createMutation,
-      awaitsSessionEnvelope,
       expiresAt,
       isMintingSession,
+      pauseBootstrap,
       queryClient,
+      resumeBootstrap,
       sessionId,
       sessionQuery,
       setSession,
