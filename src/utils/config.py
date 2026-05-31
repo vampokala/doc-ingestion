@@ -4,7 +4,7 @@ YAML-based configuration with environment variable overrides.
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
@@ -67,6 +67,22 @@ def _strip_ollama_llm_settings(cfg: Config) -> Config:
 def _default_ollama_base_url() -> str:
     # OLLAMA_HOST is used by some Ollama setups; keep it as a fallback.
     return _env_or("OLLAMA_BASE_URL", _env_or("OLLAMA_HOST", "http://localhost:11434"))
+
+
+def _prefer_non_ollama_embedding_profile(cfg: Config) -> Config:
+    embeddings = cfg.embeddings
+    profiles = embeddings.profiles
+    current_default = embeddings.default_profile
+    current = profiles.get(current_default)
+    if current is None:
+        return cfg
+    if current.provider.strip().lower() != "ollama":
+        return cfg
+    for name, profile in profiles.items():
+        if profile.provider.strip().lower() != "ollama":
+            updated = embeddings.model_copy(update={"default_profile": name})
+            return cfg.model_copy(update={"embeddings": updated})
+    return cfg
 
 
 class RerankerSettings(BaseModel):
@@ -164,6 +180,85 @@ class EvaluationSettings(BaseModel):
     )
 
 
+class ChunkingSettings(BaseModel):
+    default_strategy: str = Field("tiktoken", description="Default chunking strategy")
+    allowed_strategies: List[str] = Field(
+        default_factory=lambda: ["tiktoken", "spacy", "nltk", "medical", "legal"],
+        description="Allowed chunking strategies for ingestion",
+    )
+
+    def resolve_strategy(self, requested: Optional[str]) -> str:
+        chosen = (requested or self.default_strategy).strip().lower()
+        if chosen not in self.allowed_strategies:
+            raise ValueError(f"Chunking strategy {chosen!r} is not allowed")
+        return chosen
+
+
+class EmbeddingProfile(BaseModel):
+    provider: str = Field(..., description="Embedding provider key")
+    framework: str = Field(..., description="Embedding framework identifier")
+    model: str = Field(..., description="Embedding model identifier")
+    dimension: int = Field(..., ge=1, description="Expected embedding vector dimension")
+    options: Dict[str, Any] = Field(default_factory=dict, description="Provider/framework-specific options")
+
+
+class EmbeddingSettings(BaseModel):
+    default_profile: str = Field("ollama_nomic", description="Default embedding profile")
+    profiles: Dict[str, EmbeddingProfile] = Field(
+        default_factory=lambda: {
+            "ollama_nomic": EmbeddingProfile(
+                provider="ollama",
+                framework="ollama",
+                model="nomic-embed-text",
+                dimension=768,
+            ),
+            "st_minilm": EmbeddingProfile(
+                provider="sentence_transformers",
+                framework="sentence_transformers",
+                model="all-MiniLM-L6-v2",
+                dimension=384,
+            ),
+            "st_mpnet_base": EmbeddingProfile(
+                provider="sentence_transformers",
+                framework="sentence_transformers",
+                model="all-mpnet-base-v2",
+                dimension=768,
+            ),
+            "st_multi_qa_minilm": EmbeddingProfile(
+                provider="sentence_transformers",
+                framework="sentence_transformers",
+                model="multi-qa-MiniLM-L6-cos-v1",
+                dimension=384,
+            ),
+            "st_bge_small_en": EmbeddingProfile(
+                provider="sentence_transformers",
+                framework="sentence_transformers",
+                model="BAAI/bge-small-en-v1.5",
+                dimension=384,
+            ),
+        }
+    )
+    allowed_profiles: List[str] = Field(
+        default_factory=list,
+        description="Optional explicit allow-list. Empty means all configured profiles.",
+    )
+
+    def resolved_allowed_profiles(self) -> List[str]:
+        if self.allowed_profiles:
+            return [p for p in self.allowed_profiles if p in self.profiles]
+        return list(self.profiles.keys())
+
+    def resolve_profile_name(self, requested: Optional[str]) -> str:
+        chosen = (requested or self.default_profile).strip()
+        allowed = self.resolved_allowed_profiles()
+        if chosen not in allowed:
+            raise ValueError(f"Embedding profile {chosen!r} is not allowed")
+        return chosen
+
+    def resolve_profile(self, requested: Optional[str]) -> EmbeddingProfile:
+        return self.profiles[self.resolve_profile_name(requested)]
+
+
 class APISettings(BaseModel):
     auth_enabled: bool = Field(True, description="Require API key for protected routes")
     api_keys: List[str] = Field(default_factory=list, description="Static API keys (optional)")
@@ -193,6 +288,8 @@ class Config(BaseModel):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     api: APISettings = Field(default_factory=APISettings)
     evaluation: EvaluationSettings = Field(default_factory=EvaluationSettings)
+    chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
+    embeddings: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
 
 
 def provider_api_key_env(provider: str) -> str | None:
@@ -236,4 +333,8 @@ def load_config(config_path: str = "config.yaml", env: str | None = None) -> Con
         raise ValueError(f"Invalid configuration: {e}")
     if not doc_ollama_runtime_enabled():
         cfg = _strip_ollama_llm_settings(cfg)
+    # On hosted environments without local Ollama daemon, prefer a non-Ollama
+    # embedding profile when available to avoid upload/query failures.
+    if os.getenv("SPACE_ID", "").strip():
+        cfg = _prefer_non_ollama_embedding_profile(cfg)
     return cfg

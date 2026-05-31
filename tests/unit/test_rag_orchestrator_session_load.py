@@ -37,7 +37,7 @@ def test_session_scope_skips_missing_global_bm25(orchestrator: RAGOrchestrator, 
     _save_minimal_bm25(sess_bm25)
     sess_chroma = tmp_path / "sess" / "chroma"
 
-    index, db, _qp, session_pair, effective = orchestrator._load_components(
+    index, db, _qp, session_pair, effective, _profile = orchestrator._load_components(
         QueryRequest(
             query_text="q",
             knowledge_scope="session",
@@ -67,7 +67,7 @@ def test_both_scope_downgrades_when_global_bm25_missing(
     sess_bm25.parent.mkdir(parents=True)
     _save_minimal_bm25(sess_bm25)
 
-    index, _db, _qp, session_pair, effective = orchestrator._load_components(
+    index, _db, _qp, session_pair, effective, _profile = orchestrator._load_components(
         QueryRequest(
             query_text="q",
             knowledge_scope="both",
@@ -85,7 +85,7 @@ def test_both_scope_downgrades_when_global_bm25_missing(
 def test_global_scope_still_loads_default_path(orchestrator: RAGOrchestrator):
     if not Path(BM25_INDEX_PATH).is_file():
         pytest.skip("Global BM25 fixture not present")
-    index, db, _qp, session_pair, effective = orchestrator._load_components(
+    index, db, _qp, session_pair, effective, _profile = orchestrator._load_components(
         QueryRequest(query_text="q", knowledge_scope="global")
     )
     assert effective == "global"
@@ -94,10 +94,16 @@ def test_global_scope_still_loads_default_path(orchestrator: RAGOrchestrator):
     assert db._chroma_path == CHROMA_PATH
 
 
-def test_global_scope_raises_when_index_missing(orchestrator: RAGOrchestrator, tmp_path, monkeypatch):
+def test_global_scope_uses_empty_bm25_when_index_missing(
+    orchestrator: RAGOrchestrator, tmp_path, monkeypatch
+):
     monkeypatch.setattr(
         "src.core.rag_orchestrator.BM25_INDEX_PATH",
         str(tmp_path / "nowhere.json"),
     )
-    with pytest.raises(FileNotFoundError):
-        orchestrator._load_components(QueryRequest(query_text="q", knowledge_scope="global"))
+    index, _db, _qp, session_pair, effective, _profile = orchestrator._load_components(
+        QueryRequest(query_text="q", knowledge_scope="global")
+    )
+    assert effective == "global"
+    assert session_pair is None
+    assert index.documents == []

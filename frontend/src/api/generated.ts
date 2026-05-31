@@ -13,6 +13,7 @@ export interface QueryRequestModel {
   provider_api_key?: string | null
   session_id?: string | null
   knowledge_scope?: KnowledgeScope
+  embedding_profile?: string | null
 }
 
 export interface CitationModel {
@@ -52,6 +53,7 @@ export interface QueryResponseModel {
   citations: CitationModel[]
   retrieved: RetrievedChunkModel[]
   truthfulness?: TruthfulnessModel | null
+  embedding_profile?: string | null
 }
 
 export interface HealthModel {
@@ -70,4 +72,11 @@ export interface LlmConfigModel {
   allowed_models_by_provider: Record<string, string[]>
   provider_key_configured: Record<string, boolean>
   demo_mode: boolean
+}
+
+export interface RuntimeConfigModel {
+  chunking_default_strategy: string
+  chunking_allowed_strategies: string[]
+  embedding_default_profile: string
+  embedding_profiles: Record<string, Record<string, unknown>>
 }

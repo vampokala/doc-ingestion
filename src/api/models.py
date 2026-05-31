@@ -20,6 +20,7 @@ class QueryRequestModel(BaseModel):
     provider_api_key: Optional[str] = None
     session_id: Optional[str] = None
     knowledge_scope: Literal["global", "session", "both"] = "global"
+    embedding_profile: Optional[str] = None
 
 
 class CitationModel(BaseModel):
@@ -59,6 +60,7 @@ class QueryResponseModel(BaseModel):
     citations: List[CitationModel] = Field(default_factory=list)
     retrieved: List[RetrievedChunkModel] = Field(default_factory=list)
     truthfulness: Optional[TruthfulnessModel] = None
+    embedding_profile: Optional[str] = None
 
 
 class HealthModel(BaseModel):
@@ -85,3 +87,10 @@ class LLMConfigModel(BaseModel):
         False,
         description="True when API is running in hosted demo profile",
     )
+
+
+class RuntimeConfigModel(BaseModel):
+    chunking_default_strategy: str
+    chunking_allowed_strategies: List[str]
+    embedding_default_profile: str
+    embedding_profiles: Dict[str, Dict[str, Any]]

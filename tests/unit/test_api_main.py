@@ -34,6 +34,17 @@ def test_llm_config_endpoint():
     assert isinstance(data["demo_mode"], bool)
 
 
+def test_runtime_config_endpoint():
+    client = TestClient(app)
+    res = client.get("/config/runtime")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["chunking_default_strategy"]
+    assert isinstance(data["chunking_allowed_strategies"], list)
+    assert data["embedding_default_profile"]
+    assert isinstance(data["embedding_profiles"], dict)
+
+
 def test_query_endpoint(monkeypatch):
     def _fake_run(_req):
         return QueryResponse(
@@ -63,6 +74,7 @@ def test_query_endpoint(monkeypatch):
     data = res.json()
     assert data["provider"] == "ollama"
     assert len(data["citations"]) == 1
+    assert "embedding_profile" in data
 
 
 def test_query_requires_api_key_when_enabled():

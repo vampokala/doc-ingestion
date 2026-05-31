@@ -83,6 +83,8 @@ class MockPipeline:
             "answer": answer,
             "retrieved": [{"id": "mock-chunk-1", "text": f"Context for: {question[:40]}"}],
             "citations": [{"chunk_id": "mock-chunk-1", "resolved": True, "verification_score": 0.75, "verification": "supported"}],
+            "embedding_profile": None,
+            "chunk_strategy": None,
         }
 
 
@@ -91,7 +93,14 @@ class MockPipeline:
 # ---------------------------------------------------------------------------
 
 class LivePipeline:
-    def __init__(self, provider: str, model: Optional[str]) -> None:
+    def __init__(
+        self,
+        provider: str,
+        model: Optional[str],
+        *,
+        embedding_profile: Optional[str] = None,
+        chunk_strategy: Optional[str] = None,
+    ) -> None:
         from src.core.rag_orchestrator import QueryRequest, RAGOrchestrator
         from src.utils.config import load_config
 
@@ -99,6 +108,8 @@ class LivePipeline:
         self._orchestrator = RAGOrchestrator(cfg)
         self._provider = provider
         self._model = model
+        self._embedding_profile = embedding_profile
+        self._chunk_strategy = chunk_strategy
 
     def run(self, question: str) -> Dict[str, Any]:
         from src.core.rag_orchestrator import QueryRequest
@@ -109,12 +120,15 @@ class LivePipeline:
             model=self._model,
             include_citations=True,
             use_rerank=True,
+            embedding_profile=self._embedding_profile,
         )
         result = self._orchestrator.run(req)
         return {
             "answer": result.answer,
             "retrieved": [r.to_legacy_dict() for r in result.retrieved],
             "citations": result.citations,
+            "embedding_profile": result.embedding_profile or self._embedding_profile,
+            "chunk_strategy": self._chunk_strategy,
         }
 
 
@@ -401,6 +415,8 @@ def evaluate_dataset(
             "citation_rate": citation_rate(citations),
             "citation_resolution_rate": citation_resolution_rate(citations),
             "mean_citation_groundedness": round(mean_citation_groundedness(citations), 3),
+            "embedding_profile": out.get("embedding_profile"),
+            "chunk_strategy": out.get("chunk_strategy"),
         }
         row["nli_source_mode"] = nli_source_mode
 
@@ -448,6 +464,14 @@ def aggregate(results: List[Dict[str, Any]]) -> Dict[str, float]:
     return agg
 
 
+def aggregate_by_combo(results: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for row in results:
+        combo = f"chunk={row.get('chunk_strategy') or 'default'}|embed={row.get('embedding_profile') or 'default'}"
+        grouped.setdefault(combo, []).append(row)
+    return {combo: aggregate(rows) for combo, rows in grouped.items()}
+
+
 def write_report(
     results: List[Dict[str, Any]],
     agg: Dict[str, float],
@@ -459,7 +483,8 @@ def write_report(
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    report = {"timestamp": ts, "summary": agg, "per_question": results}
+    combo_summary = aggregate_by_combo(results)
+    report = {"timestamp": ts, "summary": agg, "summary_by_combo": combo_summary, "per_question": results}
     json_path = out / f"report-{ts}.json"
     with open(json_path, "w") as f:
         json.dump(report, f, indent=2)
@@ -476,6 +501,11 @@ def write_report(
     ]
     for k, v in sorted(agg.items()):
         md_lines.append(f"| {k} | {v:.3f} |")
+    if combo_summary:
+        md_lines += ["", "## Summary By Chunking/Embedding", "", "| Combo | Metrics |", "|---|---|"]
+        for combo, combo_metrics in sorted(combo_summary.items()):
+            metric_text = ", ".join(f"{k}={v:.3f}" for k, v in sorted(combo_metrics.items()))
+            md_lines.append(f"| {combo} | {metric_text} |")
 
     failures = {k: v for k, v in thresholds.items() if agg.get(f"mean_{k}", 1.0) < v}
     if failures:
@@ -522,16 +552,23 @@ def main() -> int:
     )
     parser.add_argument("--faithfulness-threshold", type=float, default=0.5, help="Min mean NLI faithfulness")
     parser.add_argument("--correctness-threshold", type=float, default=0.2, help="Min mean answer_correctness_rouge")
+    parser.add_argument(
+        "--embedding-profiles",
+        default="",
+        help="Comma-separated embedding profiles to compare (e.g. ollama_nomic,st_minilm)",
+    )
+    parser.add_argument(
+        "--chunking-strategies",
+        default="",
+        help="Comma-separated chunking strategies to annotate comparison runs",
+    )
     args = parser.parse_args()
 
     samples = load_dataset(args.dataset)
     logger.info("Loaded %d samples from %s", len(samples), args.dataset)
 
-    if args.mock:
-        pipeline: Any = MockPipeline()
-    else:
-        provider = args.judge_provider or "ollama"
-        pipeline = LivePipeline(provider=provider, model=args.judge_model)
+    embedding_profiles = [p.strip() for p in args.embedding_profiles.split(",") if p.strip()] or [None]
+    chunking_strategies = [s.strip() for s in args.chunking_strategies.split(",") if s.strip()] or [None]
 
     # Optional RAGAS LLM judge
     ragas_llm = None
@@ -565,7 +602,29 @@ def main() -> int:
         except Exception as exc:
             logger.warning("NLI scorer unavailable: %s", exc)
 
-    results = evaluate_dataset(samples, pipeline, ragas_llm=ragas_llm, faithfulness_scorer=faithfulness_scorer)
+    results: List[Dict[str, Any]] = []
+    for embedding_profile in embedding_profiles:
+        for chunk_strategy in chunking_strategies:
+            if args.mock:
+                pipeline = MockPipeline()
+            else:
+                provider = args.judge_provider or "ollama"
+                pipeline = LivePipeline(
+                    provider=provider,
+                    model=args.judge_model,
+                    embedding_profile=embedding_profile,
+                    chunk_strategy=chunk_strategy,
+                )
+            run_rows = evaluate_dataset(
+                samples,
+                pipeline,
+                ragas_llm=ragas_llm,
+                faithfulness_scorer=faithfulness_scorer,
+            )
+            for row in run_rows:
+                row["embedding_profile"] = embedding_profile or row.get("embedding_profile")
+                row["chunk_strategy"] = chunk_strategy or row.get("chunk_strategy")
+            results.extend(run_rows)
     agg = aggregate(results)
 
     logger.info("Aggregate scores: %s", json.dumps(agg, indent=2))

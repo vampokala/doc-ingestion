@@ -89,6 +89,8 @@ def run_ingest(
     bm25_index_path: str | None = None,
     collection_name: str | None = None,
     chroma_path: str | None = None,
+    chunk_strategy: str | None = None,
+    embedding_profile: str | None = None,
 ) -> dict:
     with _LOCK:
         files = collect_files(upload_dir)
@@ -99,5 +101,7 @@ def run_ingest(
             bm25_index_path=bm25_index_path or BM25_INDEX_PATH,
             collection_name=collection_name or COLLECTION_NAME,
             chroma_path=chroma_path or "data/embeddings/chroma",
+            chunk_strategy=chunk_strategy,
+            embedding_profile=embedding_profile,
         )
         return {"processed_files": len(files), "status": "ok"}

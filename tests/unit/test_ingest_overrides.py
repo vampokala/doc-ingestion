@@ -12,9 +12,17 @@ class _FakeProcessor:
 
 
 class _FakeDB:
-    def __init__(self, mode: str, chroma_path: str):
+    def __init__(
+        self,
+        mode: str,
+        chroma_path: str,
+        embedding_profile_name: str = "ollama_nomic",
+        embedding_profile=None,
+    ):
         self.mode = mode
         self.chroma_path = chroma_path
+        self.embedding_profile_name = embedding_profile_name
+        self.embedding_profile = embedding_profile
         self.collections: list[str] = []
         self.added: list[tuple[str, list[dict]]] = []
 

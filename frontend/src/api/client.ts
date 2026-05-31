@@ -1,4 +1,4 @@
-import type { LlmConfigModel, QueryRequestModel, QueryResponseModel } from './generated'
+import type { LlmConfigModel, QueryRequestModel, QueryResponseModel, RuntimeConfigModel } from './generated'
 
 function resolveApiBaseUrl(): string {
   const raw = import.meta.env.VITE_API_BASE_URL
@@ -89,15 +89,17 @@ function readApiKey() {
 
 async function parseError(response: Response) {
   let detail: unknown
+  let rawText = ''
   try {
-    detail = await response.json()
+    rawText = await response.text()
+    detail = rawText ? JSON.parse(rawText) : null
   } catch {
-    detail = await response.text()
+    detail = rawText || null
   }
   const message =
     typeof detail === 'object' && detail !== null && 'detail' in detail
       ? String((detail as { detail: unknown }).detail)
-      : `Request failed with status ${response.status}`
+      : (typeof detail === 'string' && detail.trim() ? detail : `Request failed with status ${response.status}`)
   return new ApiError(message, response.status, detail)
 }
 
@@ -159,9 +161,19 @@ export function deleteSession(sessionId: string) {
   return requestJson<DeleteSessionResponse>(`/sessions/${sessionId}`, { method: 'DELETE' })
 }
 
-export function uploadDocuments(sessionId: string, files: File[]) {
+export function uploadDocuments(
+  sessionId: string,
+  files: File[],
+  options?: { chunkStrategy?: string; embeddingProfile?: string },
+) {
   const formData = new FormData()
   files.forEach((file) => formData.append('files', file))
+  if (options?.chunkStrategy) {
+    formData.append('chunk_strategy', options.chunkStrategy)
+  }
+  if (options?.embeddingProfile) {
+    formData.append('embedding_profile', options.embeddingProfile)
+  }
   return requestJson<UploadDocumentsResponse>(`/sessions/${sessionId}/documents`, {
     method: 'POST',
     body: formData,
@@ -177,6 +189,10 @@ export function queryDocuments(request: QueryRequestModel) {
 
 export function fetchLlmConfig() {
   return requestJson<LlmConfigModel>('/config/llm')
+}
+
+export function fetchRuntimeConfig() {
+  return requestJson<RuntimeConfigModel>('/config/runtime')
 }
 
 export { API_BASE_URL }
